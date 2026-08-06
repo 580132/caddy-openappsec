@@ -1,0 +1,127 @@
+package app
+
+import (
+	"context"
+	"time"
+
+	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/yourname/caddy-openappsec/internal/protocol"
+)
+
+// VerdictAcquirer inspects one request and returns the engine's verdict or a
+// fail-open default. It is the request-agnostic surface the HTTP handler wave
+// calls; it owns connection lifecycle (Acquire/Release) and hides reconnects.
+type VerdictAcquirer interface {
+	AcquireVerdict(ctx context.Context, req RequestData) (*protocol.Verdict, error)
+}
+
+// FailOpenPolicy implements VerdictAcquirer with fail-open timing: it waits
+// on the engine for the verdict budget and, if the engine is silent or
+// unreachable, lets the request through (ACCEPT) unless FailOpen is explicitly
+// disabled.
+type FailOpenPolicy struct {
+	cfg  config.EngineConfig
+	pool *Pool
+}
+
+// NewFailOpenPolicy wraps pool with the fail-open decision surface.
+func NewFailOpenPolicy(cfg config.EngineConfig, pool *Pool) *FailOpenPolicy {
+	return &FailOpenPolicy{cfg: cfg, pool: pool}
+}
+
+// verdictBudget is the total time the policy waits on the engine for one
+// verdict before failing open: MaxRetriesForVerdict polls of
+// ReqMaxProcessingMs each (defaults 20 x 150ms = 3s).
+func verdictBudget(cfg config.EngineConfig) time.Duration {
+	budget := time.Duration(cfg.MaxRetriesForVerdict) * time.Duration(cfg.ReqMaxProcessingMs) * time.Millisecond
+	if budget <= 0 {
+		budget = 3 * time.Second
+	}
+	return budget
+}
+
+// failOpenEnabled reports whether engine failure should let traffic through.
+// The tri-state FailOpen pointer defaults to true when unset.
+func failOpenEnabled(cfg config.EngineConfig) bool {
+	if cfg.FailOpen == nil {
+		return true
+	}
+	return *cfg.FailOpen
+}
+
+// failOpen reports whether engine failure should let traffic through.
+func (p *FailOpenPolicy) failOpen() bool {
+	return failOpenEnabled(p.cfg)
+}
+
+// AcquireVerdict inspects req and returns the engine's verdict. If the engine
+// cannot be reached or stays silent past the verdict budget, it returns an
+// ACCEPT verdict (fail-open) unless explicitly disabled, in which case the
+// underlying error is returned. A caller-cancelled context also produces the
+// fail-open default when enabled.
+func (p *FailOpenPolicy) AcquireVerdict(ctx context.Context, req RequestData) (*protocol.Verdict, error) {
+	c, err := p.pool.Acquire(ctx, p.cfg.RegistrationSocket)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(0), nil
+		}
+		return nil, err
+	}
+	defer p.pool.Release(p.cfg.RegistrationSocket)
+
+	sid, err := c.SendRequest(ctx, req)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(0), nil
+		}
+		return nil, err
+	}
+	defer c.EndRequest(sid)
+
+	v, err := p.await(ctx, c, sid)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(sid), nil
+		}
+		return nil, err
+	}
+	return v, nil
+}
+
+// failOpenVerdict lets the request through when the engine is unavailable.
+func (p *FailOpenPolicy) failOpenVerdict(sid uint32) *protocol.Verdict {
+	return &protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}
+}
+
+// await collects the verdict for sid from the engine. It polls until the
+// verdict budget expires: a REQUEST_DELAYED_VERDICT frame holds for
+// HoldVerdictRetries x HoldVerdictPollingMs before re-polling; unrelated
+// frames are skipped at the FailOpenTimeoutMs poll interval. The fail-open
+// decision belongs to the caller.
+func (p *FailOpenPolicy) await(ctx context.Context, c *Conn, sid uint32) (*protocol.Verdict, error) {
+	poll := time.Duration(p.cfg.FailOpenTimeoutMs) * time.Millisecond
+	if poll <= 0 {
+		poll = 50 * time.Millisecond
+	}
+	hold := time.Duration(p.cfg.HoldVerdictRetries) * time.Duration(p.cfg.HoldVerdictPollingMs) * time.Millisecond
+	deadline := time.Now().Add(verdictBudget(p.cfg))
+
+	for time.Now().Before(deadline) {
+		waitCtx, cancel := context.WithDeadline(ctx, deadline)
+		payload, err := c.recv(waitCtx)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		if v, err := protocol.ParseVerdict(payload); err == nil && v.SessionID == sid {
+			return v, nil
+		}
+		if d, err := protocol.ParseDelayedVerdict(payload); err == nil && d.SessionID == sid {
+			time.Sleep(hold)
+			continue
+		}
+		// Unrelated frame (another session, keep-alive echo): keep polling.
+		time.Sleep(poll)
+	}
+	return nil, context.DeadlineExceeded
+}
