@@ -212,3 +212,39 @@ func (c *Conn) EndRequest(sid uint32) {
 	c.sessions.Reclaim(sid)
 	c.sMu.Unlock()
 }
+
+// SendResponse opens a response inspection session on the same connection as
+// the request traffic: it allocates a session id, submits the RESPONSE_CODE
+// and CONTENT_LENGTH frames, and returns the id. The caller waits on
+// AwaitVerdict and must call EndRequest to reclaim the id.
+func (c *Conn) SendResponse(ctx context.Context, code int, contentLength int64) (uint32, error) {
+	c.sMu.Lock()
+	sid := c.sessions.Allocate()
+	c.sMu.Unlock()
+
+	if err := c.send(ctx, (protocol.ResponseCode{SessionID: sid, Code: uint16(code)}).Encode()); err != nil {
+		c.sMu.Lock()
+		c.sessions.Reclaim(sid)
+		c.sMu.Unlock()
+		return 0, err
+	}
+	if err := c.send(ctx, (protocol.ContentLength{SessionID: sid, Length: uint64(contentLength)}).Encode()); err != nil {
+		c.sMu.Lock()
+		c.sessions.Reclaim(sid)
+		c.sMu.Unlock()
+		return 0, err
+	}
+	return sid, nil
+}
+
+// SendResponseBody submits one RESPONSE_BODY chunk for a response inspection
+// session opened by SendResponse.
+func (c *Conn) SendResponseBody(ctx context.Context, sid uint32, chunk []byte, isLast bool) error {
+	body := protocol.BodyChunk{
+		DataType:    protocol.DataTypeResponseBody,
+		SessionID:   sid,
+		IsLastChunk: isLast,
+		Data:        chunk,
+	}
+	return c.send(ctx, body.Encode())
+}

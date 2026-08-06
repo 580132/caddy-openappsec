@@ -13,6 +13,9 @@ import (
 // calls; it owns connection lifecycle (Acquire/Release) and hides reconnects.
 type VerdictAcquirer interface {
 	AcquireVerdict(ctx context.Context, req RequestData) (*protocol.Verdict, error)
+	// AcquireResponseVerdict inspects a fully-buffered response and returns
+	// the engine's response verdict or a fail-open ACCEPT.
+	AcquireResponseVerdict(ctx context.Context, code int, contentLength int64, body []byte) (*protocol.Verdict, error)
 }
 
 // FailOpenPolicy implements VerdictAcquirer with fail-open timing: it waits
@@ -91,6 +94,47 @@ func (p *FailOpenPolicy) AcquireVerdict(ctx context.Context, req RequestData) (*
 // failOpenVerdict lets the request through when the engine is unavailable.
 func (p *FailOpenPolicy) failOpenVerdict(sid uint32) *protocol.Verdict {
 	return &protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}
+}
+
+// AcquireResponseVerdict inspects a fully-buffered response and returns the
+// engine's response verdict. It mirrors AcquireVerdict's fail-open posture:
+// if the engine cannot be reached or stays silent past the verdict budget, it
+// returns an ACCEPT verdict (keep the response) unless explicitly disabled,
+// in which case the underlying error is returned.
+func (p *FailOpenPolicy) AcquireResponseVerdict(ctx context.Context, code int, contentLength int64, body []byte) (*protocol.Verdict, error) {
+	c, err := p.pool.Acquire(ctx, p.cfg.RegistrationSocket)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(0), nil
+		}
+		return nil, err
+	}
+	defer p.pool.Release(p.cfg.RegistrationSocket)
+
+	sid, err := c.SendResponse(ctx, code, contentLength)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(0), nil
+		}
+		return nil, err
+	}
+	defer c.EndRequest(sid)
+
+	if err := c.SendResponseBody(ctx, sid, body, true); err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(sid), nil
+		}
+		return nil, err
+	}
+
+	v, err := p.await(ctx, c, sid)
+	if err != nil {
+		if p.failOpen() {
+			return p.failOpenVerdict(sid), nil
+		}
+		return nil, err
+	}
+	return v, nil
 }
 
 // await collects the verdict for sid from the engine. It polls until the

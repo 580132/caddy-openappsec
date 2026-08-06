@@ -81,6 +81,11 @@ type fakeEngine struct {
 	// returned verdict is sent to the attachment. A nil reply sends nothing
 	// (the request is blocked forever).
 	reply func(sid uint32) *protocol.Verdict
+	// responseReply, if non-nil, is invoked after a response is fully read;
+	// its returned verdict is sent to the attachment. A nil reply sends
+	// nothing (the response is blocked forever, exercising the fail-open
+	// budget).
+	responseReply func(sid uint32) *protocol.Verdict
 	// delayed, if true, sends a REQUEST_DELAYED_VERDICT frame before the
 	// verdict, exercising the attachment's delayed-hold path.
 	delayed bool
@@ -153,19 +158,28 @@ func (f *fakeEngine) handleConn(conn transport.EngineConn) {
 		return
 	}
 	f.connections <- conn
-	if f.reply == nil {
-		return // stay open, never reply
-	}
-	sid, err := f.readRequest(conn)
-	if err != nil {
-		return
-	}
-	v := f.reply(sid)
-	if v != nil {
-		if f.delayed {
-			_ = conn.Send(context.Background(), (protocol.DelayedVerdict{SessionID: sid}).Encode())
+	if f.reply != nil {
+		sid, err := f.readRequest(conn)
+		if err != nil {
+			return
 		}
-		_ = conn.Send(context.Background(), v.Encode())
+		v := f.reply(sid)
+		if v != nil {
+			if f.delayed {
+				_ = conn.Send(context.Background(), (protocol.DelayedVerdict{SessionID: sid}).Encode())
+			}
+			_ = conn.Send(context.Background(), v.Encode())
+		}
+	}
+	if f.responseReply != nil {
+		sid, err := f.readResponse(conn)
+		if err != nil {
+			return
+		}
+		v := f.responseReply(sid)
+		if v != nil {
+			_ = conn.Send(context.Background(), v.Encode())
+		}
 	}
 }
 
@@ -214,6 +228,22 @@ func (f *fakeEngine) readRequest(conn transport.EngineConn) (uint32, error) {
 			return re.SessionID, nil
 		}
 		// header/body frames carry no session routing here; skip.
+	}
+}
+
+// readResponse consumes frames until the RESPONSE_BODY chunk and returns its
+// session id.
+func (f *fakeEngine) readResponse(conn transport.EngineConn) (uint32, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	for {
+		payload, err := conn.Recv(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if bc, err := protocol.ParseBodyChunk(payload); err == nil && bc.DataType == protocol.DataTypeResponseBody {
+			return bc.SessionID, nil
+		}
 	}
 }
 
