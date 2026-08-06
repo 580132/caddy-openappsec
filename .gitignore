@@ -1,0 +1,27 @@
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+caddy
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
