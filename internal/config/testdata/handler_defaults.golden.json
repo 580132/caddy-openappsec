@@ -1,0 +1,7 @@
+{
+  "body_buffer_limit": 10485760,
+  "response_buffer_limit": 4194304,
+  "block_status_code": 403,
+  "mode": "prevent",
+  "fail_open": true
+}
