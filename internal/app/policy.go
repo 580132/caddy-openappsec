@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // VerdictAcquirer inspects one request and returns the engine's verdict or a

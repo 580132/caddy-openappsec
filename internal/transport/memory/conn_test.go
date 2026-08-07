@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // requireClose closes c, failing the test on any error.

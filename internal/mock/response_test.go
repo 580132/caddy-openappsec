@@ -3,7 +3,7 @@ package mock
 import (
 	"testing"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // Test_Engine_ResponseVerdict_Drop_byte_exact verifies a scripted response

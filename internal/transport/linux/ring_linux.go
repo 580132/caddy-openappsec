@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // defaultPollInterval is how long Send and Recv sleep between polling the

@@ -27,13 +27,13 @@ The engine connection goes over the transport configured in the `engine` block. 
 ### With xcaddy
 
 ```
-xcaddy build --with github.com/yourname/caddy-openappsec
+xcaddy build --with github.com/580132/caddy-openappsec
 ```
 
 To build against a local checkout (what the Docker build does), use the `=replacement` form:
 
 ```
-xcaddy build --with github.com/yourname/caddy-openappsec=/path/to/openappsec-caddy
+xcaddy build --with github.com/580132/caddy-openappsec=/path/to/openappsec-caddy
 ```
 
 ### Local wrapper

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
-	"github.com/yourname/caddy-openappsec/internal/transport/memory"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport/memory"
 )
 
 // testTimeout bounds every blocking operation in the fake engine so a broken

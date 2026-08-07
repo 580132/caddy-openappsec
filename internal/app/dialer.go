@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/transport"
-	"github.com/yourname/caddy-openappsec/internal/transport/memory"
-	"github.com/yourname/caddy-openappsec/internal/transport/socket"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport/memory"
+	"github.com/580132/caddy-openappsec/internal/transport/socket"
 )
 
 // Dialer establishes a live, handshaked connection to the open-appsec engine.

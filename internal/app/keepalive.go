@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // keepAliveLoop sends keep-alive frames (§G.3) over the dedicated keep-alive

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // newShmDialer returns a dialer that reports the shared-memory engine transport

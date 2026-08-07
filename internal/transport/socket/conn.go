@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // conn is a transport.EngineConn over a TCP byte stream framed with a 4-byte

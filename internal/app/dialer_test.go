@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/mock"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport/socket"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/mock"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport/socket"
 )
 
 // Test_NewDialer_dispatches_memory_transport verifies Transport=memory selects

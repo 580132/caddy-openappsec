@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/580132/caddy-openappsec/internal/protocol"
 	"github.com/caddyserver/caddy/v2"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
 )
 
 // Test_App_CaddyModule_returns_openappsec_namespace verifies the module ID and

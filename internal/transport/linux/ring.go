@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // Errors returned by the pure ring logic. Ring operations report errRingEmpty

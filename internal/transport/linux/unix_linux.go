@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // readCoalesce is how long Recv waits for more bytes after the first read

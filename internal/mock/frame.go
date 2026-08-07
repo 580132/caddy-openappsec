@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // classify determines what kind of frame b is, given the connection's

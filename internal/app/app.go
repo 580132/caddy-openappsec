@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/580132/caddy-openappsec/internal/config"
 	"github.com/caddyserver/caddy/v2"
-	"github.com/yourname/caddy-openappsec/internal/config"
 )
 
 func init() {

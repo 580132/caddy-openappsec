@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-linux:
+    name: test (linux, amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Test with race detector
+        run: go test -race ./...
+
+      - name: Cross-compile (darwin, amd64)
+        run: GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build ./...
+
+      - name: Cross-compile (windows, amd64)
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+
+  e2e:
+    name: e2e (linux, amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cross-process end-to-end suite
+        run: go test -tags e2e ./internal/e2e/ -v -count=1
+
+  test-windows:
+    name: test (windows, amd64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile (linux, arm64)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...
+        shell: bash

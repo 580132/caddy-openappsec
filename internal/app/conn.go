@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // RequestData is the app-layer input for one engine inspection session. It

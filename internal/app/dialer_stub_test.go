@@ -5,7 +5,7 @@ package app
 import (
 	"testing"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/config"
 )
 
 // Test_NewDialer_shm_transport_returns_stub_dialer verifies the platform

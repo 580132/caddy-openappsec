@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // verdictBudget is the total time AcquireVerdict waits on the engine before

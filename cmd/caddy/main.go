@@ -11,7 +11,7 @@ package main
 import (
 	caddycmd "github.com/caddyserver/caddy/v2/cmd"
 
-	_ "github.com/yourname/caddy-openappsec"
+	_ "github.com/580132/caddy-openappsec"
 )
 
 func main() {

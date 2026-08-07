@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
-	"github.com/yourname/caddy-openappsec/internal/transport/memory"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport/memory"
 )
 
 // Test_Engine_Handshake_Then_Requests_SameConn verifies the app's real flow:

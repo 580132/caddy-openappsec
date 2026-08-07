@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // Conn is one end of an in-memory connection. Payloads sent on one end are

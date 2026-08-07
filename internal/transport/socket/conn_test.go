@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // newPair returns the two ends of a connected TCP pair: the dial side

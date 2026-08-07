@@ -44,7 +44,7 @@ COPY . .
 # module from this repository.
 RUN xcaddy build \
     --with github.com/caddyserver/caddy/v2@v2.11.4 \
-    --with github.com/yourname/caddy-openappsec=/src
+    --with github.com/580132/caddy-openappsec=/src
 
 # --- caddy: runtime image ----------------------------------------------------
 FROM alpine:3.20 AS caddy

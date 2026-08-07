@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // Listener accepts TCP connections at a local address. It implements

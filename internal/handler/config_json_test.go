@@ -8,7 +8,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/config"
 )
 
 // fullyPopulatedHandler returns a Handler with every exported field set, as a

@@ -8,8 +8,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/yourname/caddy-openappsec/internal/body"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/body"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // readRequestBody buffers the request body so it can be inspected; the caller

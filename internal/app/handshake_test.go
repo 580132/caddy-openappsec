@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/config"
 )
 
 // Test_registrationFrame_layout verifies the phase-1 registration frame

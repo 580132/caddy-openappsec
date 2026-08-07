@@ -8,7 +8,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/config"
 )
 
 // parseCaddyfileBlock drives parseCaddyfile over a raw Caddyfile snippet the

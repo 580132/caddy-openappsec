@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/config"
 )
 
 // Pool is a registry of live engine connections keyed by the engine's

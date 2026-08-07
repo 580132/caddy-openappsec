@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // registry maps addresses to live listeners. The address string stands in

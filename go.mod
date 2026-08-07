@@ -1,4 +1,4 @@
-module github.com/yourname/caddy-openappsec
+module github.com/580132/caddy-openappsec
 
 go 1.25.1
 

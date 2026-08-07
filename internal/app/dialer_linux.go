@@ -5,9 +5,9 @@ package app
 import (
 	"context"
 
-	"github.com/yourname/caddy-openappsec/internal/config"
-	"github.com/yourname/caddy-openappsec/internal/transport"
-	"github.com/yourname/caddy-openappsec/internal/transport/linux"
+	"github.com/580132/caddy-openappsec/internal/config"
+	"github.com/580132/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport/linux"
 )
 
 // newShmDialer returns the shared-memory linux dialer for the engine transport.

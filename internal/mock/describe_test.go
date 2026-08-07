@@ -3,7 +3,7 @@ package mock
 import (
 	"testing"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // Test_DescribeFrame covers the one-line frame meanings used by the CLI hex

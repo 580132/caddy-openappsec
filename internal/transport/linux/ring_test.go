@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/protocol"
 )
 
 // testRing builds a ring buffer for the given segment size and segment count,

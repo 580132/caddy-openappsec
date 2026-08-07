@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // dialTimeout bounds how long Dial waits to establish a connection. A

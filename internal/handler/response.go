@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yourname/caddy-openappsec/internal/body"
+	"github.com/580132/caddy-openappsec/internal/body"
 )
 
 // responseWriter wraps the origin response with the response-side buffering

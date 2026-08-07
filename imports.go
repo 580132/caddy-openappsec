@@ -4,6 +4,6 @@
 package caddyopenappsec
 
 import (
-	_ "github.com/yourname/caddy-openappsec/internal/app"
-	_ "github.com/yourname/caddy-openappsec/internal/handler"
+	_ "github.com/580132/caddy-openappsec/internal/app"
+	_ "github.com/580132/caddy-openappsec/internal/handler"
 )

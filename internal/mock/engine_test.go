@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
-	"github.com/yourname/caddy-openappsec/internal/transport/memory"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/transport/memory"
 )
 
 // testClient is the attachment side of a connection to the mock engine,

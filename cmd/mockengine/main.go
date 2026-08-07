@@ -27,9 +27,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/caddy-openappsec/internal/mock"
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport/socket"
+	"github.com/580132/caddy-openappsec/internal/mock"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport/socket"
 )
 
 // blockWebResponse is the DROP response for the "block" scenario.

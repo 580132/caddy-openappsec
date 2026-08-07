@@ -3,8 +3,8 @@ package mock
 import (
 	"context"
 
-	"github.com/yourname/caddy-openappsec/internal/protocol"
-	"github.com/yourname/caddy-openappsec/internal/transport"
+	"github.com/580132/caddy-openappsec/internal/protocol"
+	"github.com/580132/caddy-openappsec/internal/transport"
 )
 
 // connState is the per-connection handler state. phase tracks the handshake
