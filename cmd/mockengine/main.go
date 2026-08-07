@@ -1,8 +1,10 @@
 // Command mockengine runs the scriptable mock open-appsec engine as a
-// standalone process for local E2E. It listens on an in-memory transport
-// address (a plain registry key — no sockets, no shared memory), answers the
-// two-phase registration handshake, and replies to requests per the chosen
-// scenario:
+// standalone process for local E2E. It serves the engine over the transport
+// chosen with -transport: the default "memory" mode listens on an in-memory
+// address (a plain registry key — no sockets, no shared memory), while
+// "socket" mode binds a real TCP listener for cross-process E2E. Either way
+// it answers the two-phase registration handshake, and replies to requests
+// per the chosen scenario:
 //
 //	allow   — ACCEPT every request
 //	block   — DROP every request with a custom 403 web response
@@ -27,6 +29,7 @@ import (
 
 	"github.com/yourname/caddy-openappsec/internal/mock"
 	"github.com/yourname/caddy-openappsec/internal/protocol"
+	"github.com/yourname/caddy-openappsec/internal/transport/socket"
 )
 
 // blockWebResponse is the DROP response for the "block" scenario.
@@ -101,21 +104,44 @@ func spacedHex(h string) string {
 }
 
 func main() {
-	addr := flag.String("addr", "mock-engine", "in-memory address (registry key) to listen on")
+	addr := flag.String("addr", "mock-engine", "address to listen on: in-memory registry key with -transport memory, or a TCP address like \"tcp://127.0.0.1:0\" with -transport socket")
 	scenario := flag.String("scenario", "allow", "scenario: allow|block|inject|flaky|down")
 	requests := flag.Int("requests", 1, "flaky scenario: close each connection after N request frames")
+	transportFlag := flag.String("transport", "memory", "transport: memory (in-memory registry key) | socket (real TCP listener)")
 	flag.Parse()
 
-	eng, err := mock.New(*addr)
-	if err != nil {
-		log.Fatalf("mockengine: %v", err)
+	var (
+		eng       *mock.Engine
+		effective string
+	)
+	switch *transportFlag {
+	case "memory":
+		var err error
+		eng, err = mock.New(*addr)
+		if err != nil {
+			log.Fatalf("mockengine: %v", err)
+		}
+		effective = *addr
+	case "socket":
+		l, err := socket.Listen(*addr)
+		if err != nil {
+			log.Fatalf("mockengine: %v", err)
+		}
+		effective = l.Addr() // canonical "tcp://host:port", real port when 0 was requested
+		eng, err = mock.NewWithListener(l)
+		if err != nil {
+			_ = l.Close()
+			log.Fatalf("mockengine: %v", err)
+		}
+	default:
+		log.Fatalf("mockengine: unknown transport %q (want memory|socket)", *transportFlag)
 	}
 	defer eng.Close()
 	if err := configureScenario(eng, *scenario, *requests); err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("mock engine listening on %q (scenario %s)", *addr, *scenario)
+	log.Printf("mock engine listening on %q (transport %s, scenario %s)", effective, *transportFlag, *scenario)
 	go dumpLoop(eng)
 
 	sig := make(chan os.Signal, 1)
