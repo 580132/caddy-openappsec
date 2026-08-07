@@ -25,6 +25,9 @@ func init() {
 //	        registration_socket /dev/shm/check-point/cp-nano-attachment-registration
 //	        keep_alive_path     /dev/shm/check-point/cp-nano-attachment-registration-expiration-socket
 //	        verdict_signal_path /dev/shm/check-point/cp-nano-http-transaction-handler
+//	        # transport: memory (in-process tests), socket (cross-process TCP mock engine),
+//	        # shm (linux production default); empty means the platform default.
+//	        transport socket
 //	        family_name         caddy
 //	    }
 //	    mode prevent
@@ -140,6 +143,11 @@ func parseEngineBlock(h httpcaddyfile.Helper, cfg *config.EngineConfig) error {
 				return h.ArgErr()
 			}
 			cfg.VerdictSignalPath = h.Val()
+		case "transport":
+			if !h.NextArg() {
+				return h.ArgErr()
+			}
+			cfg.Transport = h.Val()
 		case "family_name":
 			if !h.NextArg() {
 				return h.ArgErr()

@@ -16,6 +16,7 @@ import (
 func fullyPopulatedHandler() *Handler {
 	return &Handler{
 		Engine: config.EngineConfig{
+			Transport:             config.TransportSocket,
 			RegistrationSocket:    "/tmp/cp-nano/registration",
 			KeepAlivePath:         "/tmp/cp-nano/keep-alive",
 			VerdictSignalPath:     "/tmp/cp-nano/verdict",
@@ -73,6 +74,7 @@ func Test_Handler_JSON_snake_case_keys_unmarshal(t *testing.T) {
 	// Given the JSON a caddy user writes for the module
 	const cfgJSON = `{
 		"engine": {
+			"transport": "socket",
 			"registration_socket": "/tmp/cp-nano/registration",
 			"keep_alive_path": "/tmp/cp-nano/keep-alive",
 			"verdict_signal_path": "/tmp/cp-nano/verdict",
@@ -210,6 +212,24 @@ func Test_Handler_JSON_fail_open_tristate(t *testing.T) {
 				t.Fatalf("FailOpen = %v, want %v", hnd.FailOpen, tt.want)
 			}
 		})
+	}
+}
+
+// Test_Handler_JSON_engine_transport verifies the engine transport knob
+// unmarshals from the caddy JSON config surface.
+func Test_Handler_JSON_engine_transport(t *testing.T) {
+	// Given a JSON config selecting the socket transport
+	const cfgJSON = `{"engine": {"transport": "socket"}}`
+
+	// When it is unmarshaled into a handler
+	var hnd Handler
+	if err := json.Unmarshal([]byte(cfgJSON), &hnd); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	// Then the transport lands in the engine config
+	if hnd.Engine.Transport != config.TransportSocket {
+		t.Fatalf("Engine.Transport = %q, want %q", hnd.Engine.Transport, config.TransportSocket)
 	}
 }
 

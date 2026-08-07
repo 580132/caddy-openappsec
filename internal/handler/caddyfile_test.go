@@ -40,6 +40,7 @@ openappsec {
         registration_socket      /tmp/cp-nano/registration
         keep_alive_path          /tmp/cp-nano/keep-alive
         verdict_signal_path      /tmp/cp-nano/verdict
+        transport                socket
         family_name              test-family
         worker_id                2
         workers                  4
@@ -81,6 +82,7 @@ openappsec {
 	wantEngine.RegistrationSocket = "/tmp/cp-nano/registration"
 	wantEngine.KeepAlivePath = "/tmp/cp-nano/keep-alive"
 	wantEngine.VerdictSignalPath = "/tmp/cp-nano/verdict"
+	wantEngine.Transport = config.TransportSocket
 	wantEngine.FamilyName = "test-family"
 	wantEngine.WorkerID = 2
 	wantEngine.Workers = 4
@@ -218,6 +220,59 @@ func Test_Caddyfile_InvalidValues_error(t *testing.T) {
 				t.Fatalf("error = %v, want it to mention %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// Test_Caddyfile_Engine_Transport_parses verifies the engine transport
+// subdirective maps each supported value onto EngineConfig.Transport.
+func Test_Caddyfile_Engine_Transport_parses(t *testing.T) {
+	// Given engine blocks selecting each supported transport
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"memory", "memory", config.TransportMemory},
+		{"socket", "socket", config.TransportSocket},
+		{"shm", "shm", config.TransportSHM},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := "openappsec {\n\tengine {\n\t\ttransport " + tt.value + "\n\t}\n}"
+
+			// When the directive is parsed
+			hnd, err := parseCaddyfileBlock(t, block)
+			if err != nil {
+				t.Fatalf("parseCaddyfile returned an error: %v", err)
+			}
+
+			// Then the transport lands in the engine config
+			if hnd.Engine.Transport != tt.want {
+				t.Fatalf("Engine.Transport = %q, want %q", hnd.Engine.Transport, tt.want)
+			}
+		})
+	}
+}
+
+// Test_Caddyfile_Engine_Transport_rejects_unknown_value verifies parsing
+// accepts the raw value (consistent with the other engine string options) and
+// the config validation rejects transports outside memory|socket|shm.
+func Test_Caddyfile_Engine_Transport_rejects_unknown_value(t *testing.T) {
+	// Given an engine block with an unsupported transport value
+	hnd, err := parseCaddyfileBlock(t, "openappsec {\n\tengine {\n\t\ttransport bogus\n\t\tfamily_name test\n\t}\n}")
+	if err != nil {
+		t.Fatalf("parseCaddyfile returned an error: %v", err)
+	}
+
+	// When the parsed handler is validated the way caddy validates it
+	err = hnd.Validate()
+
+	// Then the unsupported transport is rejected with the option named
+	if err == nil {
+		t.Fatal("Validate succeeded, want an error")
+	}
+	if !strings.Contains(err.Error(), `transport "bogus" is not supported`) {
+		t.Fatalf("error = %v, want it to reject the unsupported transport", err)
 	}
 }
 

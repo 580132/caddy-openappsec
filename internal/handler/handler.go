@@ -31,7 +31,8 @@ const (
 // fail-open policy), enforces DROP/INJECT verdicts, and buffers the response
 // so it can be inspected and re-emitted after the verdict.
 type Handler struct {
-	// Engine is the open-appsec engine connection configuration.
+	// Engine is the open-appsec engine connection configuration, including
+	// the transport knob (memory|socket|shm; empty = platform default).
 	Engine config.EngineConfig `json:"engine,omitempty"`
 	// Mode is ModePrevent (default; verdicts enforced) or ModeLearn
 	// (verdicts logged only, requests always forwarded).
