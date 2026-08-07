@@ -72,3 +72,12 @@ jobs:
           labels: ${{ steps.meta-mockengine.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # GHCR container packages are private by default; publish them so the
+      # images are pullable without credentials.
+      - name: Make images public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST "user/packages/container/caddy-openappsec" -f visibility=public
+          gh api -X POST "user/packages/container/caddy-openappsec-mockengine" -f visibility=public
