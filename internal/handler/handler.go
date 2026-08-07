@@ -122,9 +122,13 @@ func (h *Handler) Validate() error {
 }
 
 // Provision wires the shared engine pool and the fail-open verdict policy.
-// It has no side effects beyond pool construction: the engine is not
-// contacted. When fail-open is explicitly disabled, Provision verifies the
-// engine is reachable so a boot-time misconfiguration fails fast.
+// It holds one pool reference for the handler's lifetime so the engine
+// connection is dialed once and reused across requests — otherwise every
+// request's Acquire/Release would close the shared conn (refcount 1→0) and the
+// engine would see a fresh registration per request (its handler re-registers
+// each new connection, destabilizing verdict attribution). The engine is not
+// contacted until the first Acquire inside AcquireVerdict (or the fail-closed
+// reachability check below); the reference acquired here keeps the conn alive.
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.SetDefaults()
 	if h.logger == nil {
@@ -136,16 +140,21 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.acquirer = app.NewFailOpenPolicy(h.Engine, h.pool)
 	}
 
-	if h.failClosed() {
-		timeout := time.Duration(h.Engine.RegistrationTimeoutMs) * time.Millisecond
-		if timeout <= 0 {
-			timeout = time.Second
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		if _, err := h.pool.Acquire(ctx, h.Engine.RegistrationSocket); err != nil {
+	// Hold a pool reference so the shared conn survives between requests. The
+	// dial itself is lazy (inside Acquire); this only reserves a slot so the
+	// per-request Acquire/Release pairs never drop the refcount to zero.
+	timeout := time.Duration(h.Engine.RegistrationTimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	ctxAcq, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if _, err := h.pool.Acquire(ctxAcq, h.Engine.RegistrationSocket); err != nil {
+		if h.failClosed() {
 			return fmt.Errorf("handler: engine unavailable: %w", err)
 		}
+		// Fail-open: the dial failure is tolerated; the per-request path will
+		// retry and fail open if the engine is still unreachable.
 	}
 	return nil
 }
