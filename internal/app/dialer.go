@@ -6,6 +6,7 @@ import (
 	"github.com/yourname/caddy-openappsec/internal/config"
 	"github.com/yourname/caddy-openappsec/internal/transport"
 	"github.com/yourname/caddy-openappsec/internal/transport/memory"
+	"github.com/yourname/caddy-openappsec/internal/transport/socket"
 )
 
 // Dialer establishes a live, handshaked connection to the open-appsec engine.
@@ -20,6 +21,23 @@ type Dialer interface {
 	// DialKeepAlive opens the raw keep-alive socket (§G.3) without any
 	// handshake. The keep-alive frames are app-layer framing moved verbatim.
 	DialKeepAlive(ctx context.Context) (transport.EngineConn, error)
+}
+
+// NewDialer returns the dialer selected by cfg.Transport. The transport knob
+// is resolved here, at the seam between config and connection: "memory" dials
+// the in-process transport, "socket" dials cross-process TCP, and "shm" (or
+// the empty platform default) resolves to the tagged shared-memory dialer —
+// the linux shm transport where it exists, a fail-open stub elsewhere.
+func NewDialer(cfg config.EngineConfig) Dialer {
+	switch cfg.Transport {
+	case config.TransportMemory:
+		return &memoryDialer{cfg: cfg}
+	case config.TransportSocket:
+		return &socketDialer{cfg: cfg}
+	default:
+		// TransportSHM and the empty value both mean the platform default.
+		return newShmDialer(cfg)
+	}
 }
 
 // memoryDialer dials the in-process transport and runs the registration
@@ -46,4 +64,30 @@ func (d *memoryDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
 // DialKeepAlive opens the raw keep-alive socket (§G.3) without a handshake.
 func (d *memoryDialer) DialKeepAlive(ctx context.Context) (transport.EngineConn, error) {
 	return memory.Dial(d.cfg.KeepAlivePath)
+}
+
+// socketDialer dials the cross-process TCP transport and runs the registration
+// handshake over the connection. It backs local E2E against the mock engine.
+// The addresses are the engine's registration and keep-alive TCP endpoints.
+type socketDialer struct {
+	cfg config.EngineConfig
+}
+
+// Dial connects to the TCP listener at the registration socket and completes
+// the two-phase handshake over the connection.
+func (d *socketDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
+	conn, err := socket.Dial(d.cfg.RegistrationSocket)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := handshake(ctx, conn, d.cfg); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+// DialKeepAlive opens the raw keep-alive socket (§G.3) without a handshake.
+func (d *socketDialer) DialKeepAlive(ctx context.Context) (transport.EngineConn, error) {
+	return socket.Dial(d.cfg.KeepAlivePath)
 }

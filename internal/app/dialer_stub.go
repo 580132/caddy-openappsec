@@ -11,10 +11,12 @@ import (
 	"github.com/yourname/caddy-openappsec/internal/transport"
 )
 
-// NewDialer returns a dialer that reports the shared-memory engine transport
+// newShmDialer returns a dialer that reports the shared-memory engine transport
 // is unavailable on this platform. Fail-open still applies: the engine is
-// unreachable, so requests pass through.
-func NewDialer(cfg config.EngineConfig) Dialer {
+// unreachable, so requests pass through. It is the platform default: NewDialer
+// resolves an empty Transport (and an explicit TransportSHM) on non-linux to
+// this dialer.
+func newShmDialer(cfg config.EngineConfig) Dialer {
 	return &stubDialer{cfg: cfg}
 }
 
