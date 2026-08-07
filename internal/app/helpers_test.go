@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -64,13 +63,18 @@ func testConfig(t *testing.T, addr string) config.EngineConfig {
 }
 
 // fakeEngine is an in-test open-appsec engine server. It serves the two-phase
-// registration handshake (§G.1, §G.2) for every accepted connection and pushes
-// the handshaked engine-side connection onto connections so tests can drive
-// verdicts, close conns, and read request frames.
+// registration handshake over two sockets exactly like the C reference:
+// a phase-1 registration listener at cfg.RegistrationSocket (§G.1) replies
+// with the verdict signal path and is one-shot, and a phase-2 listener at
+// cfg.VerdictSignalPath (§G.2) completes the comm handshake and carries the
+// request/verdict traffic. The handshaked phase-2 connection is pushed onto
+// connections so tests can drive verdicts, close conns, and read request
+// frames.
 type fakeEngine struct {
 	t           *testing.T
-	listener    *memory.Listener
-	kaListener  *memory.Listener
+	listener    *memory.Listener // cfg.RegistrationSocket — phase-1 registration
+	verdict     *memory.Listener // cfg.VerdictSignalPath — phase-2 comm + requests
+	kaListener  *memory.Listener // cfg.KeepAlivePath — §G.3 keep-alive
 	cfg         config.EngineConfig
 	connections chan transport.EngineConn
 	// keepAlive receives the raw (unhandshaked) connections accepted on the
@@ -91,13 +95,18 @@ type fakeEngine struct {
 	delayed bool
 }
 
-// newFakeEngine registers a listener at cfg.RegistrationSocket and the
-// keep-alive listener at cfg.KeepAlivePath, then starts accepting.
+// newFakeEngine registers the phase-1 listener at cfg.RegistrationSocket, the
+// phase-2 listener at cfg.VerdictSignalPath, and the keep-alive listener at
+// cfg.KeepAlivePath, then starts accepting on all three.
 func newFakeEngine(t *testing.T, cfg config.EngineConfig) *fakeEngine {
 	t.Helper()
 	l, err := memory.Listen(cfg.RegistrationSocket)
 	if err != nil {
 		t.Fatalf("fakeEngine: Listen(%q): %v", cfg.RegistrationSocket, err)
+	}
+	vl, err := memory.Listen(cfg.VerdictSignalPath)
+	if err != nil {
+		t.Fatalf("fakeEngine: Listen(%q): %v", cfg.VerdictSignalPath, err)
 	}
 	kl, err := memory.Listen(cfg.KeepAlivePath)
 	if err != nil {
@@ -106,21 +115,26 @@ func newFakeEngine(t *testing.T, cfg config.EngineConfig) *fakeEngine {
 	f := &fakeEngine{
 		t:           t,
 		listener:    l,
+		verdict:     vl,
 		kaListener:  kl,
 		cfg:         cfg,
 		connections: make(chan transport.EngineConn, 16),
 		keepAlive:   make(chan transport.EngineConn, 16),
 	}
-	go f.acceptLoop()
+	go f.acceptRegistrationLoop()
+	go f.acceptVerdictLoop()
 	go f.acceptKeepAliveLoop()
 	return f
 }
 
-// close shuts both listeners down, failing the test on error.
+// close shuts all three listeners down, failing the test on error.
 func (f *fakeEngine) close() {
 	f.t.Helper()
 	if err := f.listener.Close(); err != nil {
 		f.t.Fatalf("fakeEngine: listener Close: %v", err)
+	}
+	if err := f.verdict.Close(); err != nil {
+		f.t.Fatalf("fakeEngine: verdict listener Close: %v", err)
 	}
 	if err := f.kaListener.Close(); err != nil {
 		f.t.Fatalf("fakeEngine: keep-alive listener Close: %v", err)
@@ -139,24 +153,78 @@ func (f *fakeEngine) acceptKeepAliveLoop() {
 	}
 }
 
-// acceptLoop accepts every dialed connection and serves it concurrently.
-func (f *fakeEngine) acceptLoop() {
+// acceptRegistrationLoop accepts every dial on the phase-1 registration
+// socket and serves it concurrently. The registration socket is one-shot
+// (§G.1): after the path reply the connection is closed by the client.
+func (f *fakeEngine) acceptRegistrationLoop() {
 	for {
 		conn, err := f.listener.Accept()
 		if err != nil {
 			return // listener closed
 		}
-		go f.handleConn(conn)
+		go f.serveRegistration(conn)
 	}
 }
 
-// handleConn performs the server-side handshake, hands the conn to the test,
-// then serves requests according to reply.
-func (f *fakeEngine) handleConn(conn transport.EngineConn) {
-	if err := f.serverHandshake(conn); err != nil {
+// acceptVerdictLoop accepts every dial on the phase-2 verdict signal socket
+// and serves it concurrently.
+func (f *fakeEngine) acceptVerdictLoop() {
+	for {
+		conn, err := f.verdict.Accept()
+		if err != nil {
+			return // listener closed
+		}
+		go f.serveVerdict(conn)
+	}
+}
+
+// serveRegistration implements the engine side of §G.1 on the one-shot
+// registration connection: it validates the registration frame byte-for-byte
+// against the client's expected layout and replies with the verdict signal
+// path. The connection is then left for the client to close (§G.1); no
+// further frames arrive on it.
+func (f *fakeEngine) serveRegistration(conn transport.EngineConn) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	reg, err := conn.Recv(ctx)
+	if err != nil {
 		_ = conn.Close()
 		return
 	}
+	if want := registrationFrame(f.cfg); !bytes.Equal(reg, want) {
+		_ = conn.Close()
+		return
+	}
+
+	path := []byte(f.cfg.VerdictSignalPath)
+	reply := append([]byte{uint8(len(path))}, path...)
+	if err := conn.Send(ctx, reply); err != nil {
+		_ = conn.Close()
+	}
+}
+
+// serveVerdict implements the engine side of §G.2 on the live phase-2
+// connection: it validates the comm frame, sends the ack, hands the conn to
+// the test, then serves requests according to reply.
+func (f *fakeEngine) serveVerdict(conn transport.EngineConn) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	comm, err := conn.Recv(ctx)
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	if want := commFrame(f.cfg); !bytes.Equal(comm, want) {
+		_ = conn.Close()
+		return
+	}
+	if err := conn.Send(ctx, []byte{0}); err != nil {
+		_ = conn.Close()
+		return
+	}
+
 	f.connections <- conn
 	if f.reply != nil {
 		sid, err := f.readRequest(conn)
@@ -181,35 +249,6 @@ func (f *fakeEngine) handleConn(conn transport.EngineConn) {
 			_ = conn.Send(context.Background(), v.Encode())
 		}
 	}
-}
-
-// serverHandshake implements the engine side of §G.1 and §G.2, validating the
-// registration frame byte-for-byte against the client's expected layout.
-func (f *fakeEngine) serverHandshake(conn transport.EngineConn) error {
-	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	defer cancel()
-
-	reg, err := conn.Recv(ctx)
-	if err != nil {
-		return fmt.Errorf("fakeEngine: registration recv: %w", err)
-	}
-	if want := registrationFrame(f.cfg); !bytes.Equal(reg, want) {
-		return fmt.Errorf("fakeEngine: registration frame mismatch:\ngot  %v\nwant %v", reg, want)
-	}
-
-	path := []byte(f.cfg.VerdictSignalPath)
-	reply := append([]byte{uint8(len(path))}, path...)
-	if err := conn.Send(ctx, reply); err != nil {
-		return fmt.Errorf("fakeEngine: signal-path reply: %w", err)
-	}
-
-	if _, err := conn.Recv(ctx); err != nil {
-		return fmt.Errorf("fakeEngine: comm recv: %w", err)
-	}
-	if err := conn.Send(ctx, []byte{0}); err != nil {
-		return fmt.Errorf("fakeEngine: comm ack: %w", err)
-	}
-	return nil
 }
 
 // readRequest consumes frames until REQUEST_END and returns its session id.

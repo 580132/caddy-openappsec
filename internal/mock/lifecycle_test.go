@@ -11,10 +11,11 @@ import (
 	"github.com/580132/caddy-openappsec/internal/transport/memory"
 )
 
-// Test_Engine_Handshake_Then_Requests_SameConn verifies the app's real flow:
-// registration, comm, then request frames on the one connection, with
-// REQUEST_END receiving no reply (next Recv times out).
-func Test_Engine_Handshake_Then_Requests_SameConn(t *testing.T) {
+// Test_Engine_Handshake_Then_Requests verifies the app's real flow:
+// phase-1 registration on a one-shot connection (closed after the path
+// reply), then phase-2 comm and request frames on the fresh connection to the
+// returned path, with REQUEST_END receiving no reply (next Recv times out).
+func Test_Engine_Handshake_Then_Requests(t *testing.T) {
 	// Given
 	const addr = "mock-sameconn"
 	eng, err := New(addr)
@@ -33,7 +34,7 @@ func Test_Engine_Handshake_Then_Requests_SameConn(t *testing.T) {
 		t.Fatalf("path = %q, want engine address %q", path, addr)
 	}
 
-	// When (request traffic on the same connection)
+	// When (request traffic on the phase-2 connection)
 	const sid = uint32(9)
 	c.send(protocol.RequestStart{SessionID: sid, Method: "GET", UnparsedURI: "/"}.Encode())
 	mustEqualBytes(t, (&protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}).Encode(), c.recv(), "verdict")
@@ -120,11 +121,11 @@ func Test_Engine_Counters_Tally(t *testing.T) {
 	// Then. Frames on one connection arrive in order, but the two
 	// connections are served concurrently, so only the multiset is stable.
 	want := map[string]int{
-		"REGISTRATION type=0 worker=1 workers=1 family=\"caddy\"":     1,
-		"COMM_DATA uid=\"caddy\" user=0 group=0":                      1,
-		"REQUEST_START session=3 method=\"GET\" uri=\"/a\" host=\"\"": 1,
-		"REQUEST_END session=3":                                       1,
-		"KEEP_ALIVE worker=1 family=\"caddy\"":                        1,
+		"REGISTRATION type=0 worker=1 workers=1 family=\"caddy\"":          1,
+		"COMM_DATA uid=\"caddy\" user=0 group=0 target_core=-1":            1,
+		"REQUEST_START session=3 method=\"GET\" uri=\"/a\" host=\"\"":      1,
+		"REQUEST_END session=3":                                            1,
+		"KEEP_ALIVE worker=1 family=\"caddy\"":                             1,
 	}
 	if len(got) != 5 {
 		t.Fatalf("got %d frames %v, want 5", len(got), got)

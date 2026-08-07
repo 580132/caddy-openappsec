@@ -75,11 +75,15 @@ func ParseRegistrationReply(b []byte) (*RegistrationReply, error) {
 // CommData is the phase-2 communication frame an attachment sends to the
 // verdict-signal socket (§G.2, nano_initializer.c:278-334):
 //
-//	[u8 uid_size][unique_id][u32 nano_user_id][u32 nano_group_id]
+//	[u8 uid_size][unique_id][u32 nano_user_id][u32 nano_group_id][i32 target_core]
+//
+// TargetCore is the paired affinity target core, or -1 when paired affinity
+// is disabled (ngx_cp_initializer.c:430,447,451-452).
 type CommData struct {
-	UID     string
-	UserID  uint32
-	GroupID uint32
+	UID        string
+	UserID     uint32
+	GroupID    uint32
+	TargetCore int32
 }
 
 // Encode serializes the frame. UID is written with a uint8 length prefix and
@@ -89,6 +93,7 @@ func (m CommData) Encode() []byte {
 	w.str8(m.UID)
 	w.u32(m.UserID)
 	w.u32(m.GroupID)
+	w.i32(m.TargetCore)
 	return w.buf
 }
 
@@ -104,6 +109,9 @@ func ParseCommData(b []byte) (*CommData, error) {
 		return nil, err
 	}
 	if m.GroupID, err = r.u32(); err != nil {
+		return nil, err
+	}
+	if m.TargetCore, err = r.i32(); err != nil {
 		return nil, err
 	}
 	return m, nil

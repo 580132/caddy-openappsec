@@ -15,8 +15,11 @@ import (
 // the engine is unreachable and the fail-open policy degrades requests to
 // allow-through.
 type Dialer interface {
-	// Dial connects to the engine's registration socket, completes the
-	// two-phase handshake, and returns the request/verdict connection.
+	// Dial connects to the engine's registration socket, completes phase 1 of
+	// the two-phase handshake (docs/attachment-protocol.md §G.1) and closes
+	// the one-shot registration connection, then connects to the verdict
+	// signal path assigned in the reply and completes phase 2 (§G.2). It
+	// returns the live phase-2 connection, ready for request/verdict traffic.
 	Dial(ctx context.Context) (transport.EngineConn, error)
 	// DialKeepAlive opens the raw keep-alive socket (§G.3) without any
 	// handshake. The keep-alive frames are app-layer framing moved verbatim.
@@ -40,25 +43,37 @@ func NewDialer(cfg config.EngineConfig) Dialer {
 	}
 }
 
-// memoryDialer dials the in-process transport and runs the registration
-// handshake over the connection. It backs unit tests and local E2E against
-// the mock engine. The address is the engine's registration socket path.
+// memoryDialer dials the in-process transport and runs the two-phase
+// registration handshake over two connections. It backs unit tests and local
+// E2E against the mock engine. The addresses are the engine's registration
+// socket and the verdict signal path returned in phase 1.
 type memoryDialer struct {
 	cfg config.EngineConfig
 }
 
-// Dial connects to the in-memory listener at the registration socket and
-// completes the two-phase handshake over the connection.
+// Dial connects to the in-memory listener at the registration socket, runs
+// phase 1 of the handshake, closes the one-shot registration connection, then
+// dials the verdict path assigned in the reply and runs phase 2 over it. The
+// returned connection is the live phase-2 conn.
 func (d *memoryDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
-	conn, err := memory.Dial(d.cfg.RegistrationSocket)
+	sig, err := memory.Dial(d.cfg.RegistrationSocket)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := handshake(ctx, conn, d.cfg); err != nil {
-		_ = conn.Close()
+	verdictPath, err := register(ctx, sig, d.cfg)
+	_ = sig.Close() // registration socket is one-shot (§G.1)
+	if err != nil {
 		return nil, err
 	}
-	return conn, nil
+	comm, err := memory.Dial(verdictPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := sendComm(ctx, comm, d.cfg); err != nil {
+		_ = comm.Close()
+		return nil, err
+	}
+	return comm, nil
 }
 
 // DialKeepAlive opens the raw keep-alive socket (§G.3) without a handshake.
@@ -66,25 +81,37 @@ func (d *memoryDialer) DialKeepAlive(ctx context.Context) (transport.EngineConn,
 	return memory.Dial(d.cfg.KeepAlivePath)
 }
 
-// socketDialer dials the cross-process TCP transport and runs the registration
-// handshake over the connection. It backs local E2E against the mock engine.
-// The addresses are the engine's registration and keep-alive TCP endpoints.
+// socketDialer dials the cross-process TCP transport and runs the two-phase
+// registration handshake over two connections. It backs local E2E against the
+// mock engine. The addresses are the engine's registration, verdict and
+// keep-alive TCP endpoints.
 type socketDialer struct {
 	cfg config.EngineConfig
 }
 
-// Dial connects to the TCP listener at the registration socket and completes
-// the two-phase handshake over the connection.
+// Dial connects to the TCP listener at the registration socket, runs phase 1
+// of the handshake, closes the one-shot registration connection, then dials
+// the verdict path assigned in the reply and runs phase 2 over it. The
+// returned connection is the live phase-2 conn.
 func (d *socketDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
-	conn, err := socket.Dial(d.cfg.RegistrationSocket)
+	sig, err := socket.Dial(d.cfg.RegistrationSocket)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := handshake(ctx, conn, d.cfg); err != nil {
-		_ = conn.Close()
+	verdictPath, err := register(ctx, sig, d.cfg)
+	_ = sig.Close() // registration socket is one-shot (§G.1)
+	if err != nil {
 		return nil, err
 	}
-	return conn, nil
+	comm, err := socket.Dial(verdictPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := sendComm(ctx, comm, d.cfg); err != nil {
+		_ = comm.Close()
+		return nil, err
+	}
+	return comm, nil
 }
 
 // DialKeepAlive opens the raw keep-alive socket (§G.3) without a handshake.

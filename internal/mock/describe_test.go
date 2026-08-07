@@ -24,7 +24,7 @@ func Test_DescribeFrame(t *testing.T) {
 		{"request_header", protocol.HeaderBulk{DataType: protocol.DataTypeRequestHeader, SessionID: 1, IsLastPart: true, Headers: []protocol.Header{{Key: "Host", Value: "example.com"}}}.Encode(), "REQUEST_HEADER session=1 last=true part=0 headers=1"},
 		{"request_body", protocol.BodyChunk{DataType: protocol.DataTypeRequestBody, SessionID: 1, IsLastChunk: true, Data: []byte("hello")}.Encode(), "REQUEST_BODY session=1 last=true part=0 bytes=5"},
 		{"registration", protocol.Registration{AttachmentType: 0, WorkerID: 1, WorkersAmount: 2, FamilyName: "abcd"}.Encode(), "REGISTRATION type=0 worker=1 workers=2 family=\"abcd\""},
-		{"comm_data", protocol.CommData{UID: "abcd", UserID: 1, GroupID: 2}.Encode(), "COMM_DATA uid=\"abcd\" user=1 group=2"},
+		{"comm_data", protocol.CommData{UID: "abcd", UserID: 1, GroupID: 2, TargetCore: -1}.Encode(), "COMM_DATA uid=\"abcd\" user=1 group=2 target_core=-1"},
 		{"keep_alive", protocol.KeepAlive{WorkerID: 1, FamilyName: "nginx"}.Encode(), "KEEP_ALIVE worker=1 family=\"nginx\""},
 		{"unknown", []byte{0xde, 0xad, 0xbe, 0xef}, "UNKNOWN (4 bytes)"},
 	}

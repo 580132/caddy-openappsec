@@ -82,7 +82,10 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 // handshake drives the two-phase registration exactly like the app's client
-// (internal/app/handshake.go): registration frame, path reply, comm frame, ack.
+// (internal/app/handshake.go): phase 1 (registration + path reply) runs on a
+// one-shot connection that is closed after the reply, then phase 2 (comm +
+// ack) runs on a fresh connection to the returned path, which becomes the
+// client's live conn for the rest of the test.
 func (c *testClient) handshake(family string) string {
 	c.t.Helper()
 	c.send(protocol.Registration{WorkerID: 1, WorkersAmount: 1, FamilyName: family}.Encode())
@@ -91,14 +94,21 @@ func (c *testClient) handshake(family string) string {
 	if err != nil {
 		c.t.Fatalf("bad registration reply: %v", err)
 	}
-	c.send(protocol.CommData{UID: family}.Encode())
+	_ = c.conn.Close() // registration socket is one-shot (§G.1)
+	conn, err := memory.Dial(path.Path)
+	if err != nil {
+		c.t.Fatalf("Dial(%q): %v", path.Path, err)
+	}
+	c.conn = conn
+	c.send(protocol.CommData{UID: family, TargetCore: -1}.Encode())
 	mustEqualBytes(c.t, protocol.Ack{Value: 1}.Encode(), c.recv(), "comm ack")
 	return path.Path
 }
 
-// Test_Engine_RegistrationHandshake verifies the full two-phase handshake on
-// one connection, byte-exact against the protocol codecs: registration gets a
-// path reply naming the engine address, comm data gets a one-byte ack.
+// Test_Engine_RegistrationHandshake verifies the full two-phase handshake,
+// byte-exact against the protocol codecs: phase 1 on the one-shot
+// registration connection gets a path reply naming the engine address, then
+// phase 2 on a fresh connection to that path gets a one-byte comm ack.
 func Test_Engine_RegistrationHandshake(t *testing.T) {
 	// Given
 	const addr = "mock-handshake"
@@ -109,7 +119,7 @@ func Test_Engine_RegistrationHandshake(t *testing.T) {
 	defer eng.Close()
 	c := dial(t, addr)
 
-	// When
+	// When (phase 1 on the registration connection)
 	c.send(protocol.Registration{AttachmentType: 0, WorkerID: 1, WorkersAmount: 1, FamilyName: "caddy"}.Encode())
 	got := c.recv()
 
@@ -117,8 +127,14 @@ func Test_Engine_RegistrationHandshake(t *testing.T) {
 	want := protocol.RegistrationReply{Path: addr}.Encode()
 	mustEqualBytes(t, want, got, "registration reply")
 
-	// When (phase 2, same connection)
-	c.send(protocol.CommData{UID: "caddy"}.Encode())
+	// When (phase 2 on a fresh connection to the returned path)
+	_ = c.conn.Close() // registration socket is one-shot (§G.1)
+	conn, err := memory.Dial(addr)
+	if err != nil {
+		t.Fatalf("Dial(%q): %v", addr, err)
+	}
+	c.conn = conn
+	c.send(protocol.CommData{UID: "caddy", TargetCore: -1}.Encode())
 	got = c.recv()
 
 	// Then

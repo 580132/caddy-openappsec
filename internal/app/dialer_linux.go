@@ -25,21 +25,34 @@ type shmDialer struct {
 	cfg config.EngineConfig
 }
 
-// Dial connects to the registration signal socket, completes the handshake to
-// learn the verdict signal path, then opens the ring data connection.
+// Dial connects to the registration signal socket, completes phase 1 of the
+// handshake to learn the verdict signal path, closes the one-shot
+// registration socket, connects to the verdict path for phase 2, then opens
+// the ring data connection.
 func (d *shmDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
 	sig, err := linux.DialSignal(ctx, d.cfg.RegistrationSocket)
 	if err != nil {
 		return nil, err
 	}
-	verdictPath, err := handshake(ctx, sig, d.cfg)
+	verdictPath, err := register(ctx, sig, d.cfg)
+	_ = sig.Close() // registration socket is one-shot (§G.1)
 	if err != nil {
-		_ = sig.Close()
 		return nil, err
 	}
-	if err := sig.Close(); err != nil {
+	comm, err := linux.DialSignal(ctx, verdictPath)
+	if err != nil {
 		return nil, err
 	}
+	if err := sendComm(ctx, comm, d.cfg); err != nil {
+		_ = comm.Close()
+		return nil, err
+	}
+	// The C reference keeps comm_socket open for the attachment's lifetime
+	// (isIpcReady requires comm_socket > 0, ngx_cp_initializer.c:1068), but
+	// this attachment's liveness channel is the dedicated keep-alive socket
+	// (§G.3) and request/verdict data flows over the shared-memory ring, so
+	// the phase-2 socket is released once the handshake ack is in.
+	_ = comm.Close()
 	return linux.OpenRing(ctx, verdictPath, d.cfg)
 }
 

@@ -120,9 +120,10 @@ func (fx *fixture) serve(r *http.Request, next caddyhttp.Handler) *httptest.Resp
 
 // memoryDialer is the attachment-side client dialer over the in-memory
 // transport. It mirrors internal/app's unexported memoryDialer exactly:
-// dial the registration socket, run the two-phase handshake (§G.1, §G.2),
-// and return the handshaked connection. It exists so the handler tests can
-// wire the mock engine through the app's public pool surface.
+// dial the registration socket, run phase 1 (§G.1), close it, then dial the
+// returned verdict-signal path for phase 2 (§G.2) and return the handshaked
+// connection. It exists so the handler tests can wire the mock engine
+// through the app's public pool surface.
 type memoryDialer struct {
 	cfg config.EngineConfig
 }
@@ -147,24 +148,33 @@ func (d *memoryDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
 		_ = conn.Close()
 		return nil, err
 	}
-	if _, err := protocol.ParseRegistrationReply(reply); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	if err := conn.Send(ctx, (protocol.CommData{UID: d.cfg.FamilyName}).Encode()); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	ack, err := conn.Recv(ctx)
+	path, err := protocol.ParseRegistrationReply(reply)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
+	// §G.1 one-shot: the registration connection is closed after the reply.
+	if err := conn.Close(); err != nil {
+		return nil, err
+	}
+	comm, err := memory.Dial(path.Path)
+	if err != nil {
+		return nil, err
+	}
+	if err := comm.Send(ctx, (protocol.CommData{UID: d.cfg.FamilyName, TargetCore: -1}).Encode()); err != nil {
+		_ = comm.Close()
+		return nil, err
+	}
+	ack, err := comm.Recv(ctx)
+	if err != nil {
+		_ = comm.Close()
+		return nil, err
+	}
 	if len(ack) == 0 {
-		_ = conn.Close()
+		_ = comm.Close()
 		return nil, fmt.Errorf("memoryDialer: empty comm ack")
 	}
-	return conn, nil
+	return comm, nil
 }
 
 func (d *memoryDialer) DialKeepAlive(ctx context.Context) (transport.EngineConn, error) {

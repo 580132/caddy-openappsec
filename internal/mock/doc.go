@@ -12,18 +12,22 @@
 // registration, §G.2 comm and §G.3 keep-alive all arrive at the same
 // listener. The phase-1 registration reply always names the engine's own
 // address as the verdict-signal path, so a client can dial the same address
-// again for keep-alive and request traffic.
+// again for comm and request traffic.
 //
-// Handshake (server side): on every connection the first frame is classified
-// deterministically. Request frames (data types 0–10) are recognized first;
-// a registration frame gets a RegistrationReply naming the engine address, a
-// comm frame and a keep-alive frame each get a one-byte Ack. The
-// classification order is: request frame, registration (only on a fresh
-// connection), comm data, keep-alive, unknown. Frames whose second byte is
-// zero are request frames (the data_type is a little-endian uint16 below
-// 256); registration frames carry worker_id+1 in that byte and are never
-// requests. This matches the app's client (internal/app/handshake.go), which
-// sends REGISTRATION, then COMM_DATA, then requests on one connection.
+// Handshake (server side): a connection in phase 0 accepts exactly one
+// registration frame, which gets a RegistrationReply naming the engine
+// address; the connection is then closed by the client (§G.1 one-shot).
+// A fresh connection in phase 0 receives the comm frame (with target_core)
+// and gets a one-byte Ack; that connection then carries keep-alive and
+// request traffic. Every other frame is classified deterministically:
+// request frames (data types 0–10) are recognized first; registration
+// (only on a fresh connection), comm data, keep-alive, then unknown. Frames
+// whose second byte is zero are request frames (the data_type is a
+// little-endian uint16 below 256); registration frames carry worker_id+1 in
+// that byte and are never requests. This matches the app's client
+// (internal/app/handshake.go), which sends REGISTRATION on a one-shot
+// connection, closes it, and dials the returned path for COMM_DATA and
+// request traffic.
 //
 // Verdicts: SetNextVerdict queues scripted verdicts in FIFO order; each
 // REQUEST_START pops one and the engine replies on the same connection,

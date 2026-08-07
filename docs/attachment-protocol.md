@@ -488,14 +488,21 @@ instead of `family_name`:
 then reads `[path_length][path]` (`nano_initializer.c:628-653`).
 
 ### G.2 Phase 2 — Comm socket (server: `shared_verdict_signal_path`)
+The registration socket is closed after phase 1 (`ngx_cp_initializer.c:747`,
+`nano_initializer.c:646-650`); phase 2 runs on a **fresh connection** to the
+returned `shared_verdict_signal_path`, which stays open as the live
+request/verdict connection.
 nano library (`nano_initializer.c:279-334`, `send_comm_data_to_comm_socket`):
 ```
 [uint8_t uid_size]
 [unique_id bytes]
 [uint32_t nano_user_id]
 [uint32_t nano_group_id]
+[int32_t target_core]
 ```
-then reads a 1-byte ack (`nano_initializer.c:392-398`).
+then reads a 1-byte ack (`nano_initializer.c:392-398`). `target_core` is the
+paired-core affinity hint (`ngx_cp_initializer.c:430-452`); the attachment
+sends `-1` (unpaired) or the worker's target core.
 
 ### G.3 Keep-alive — `nano_attachment.c:497-543`, `ngx_http_cp_attachment_module.c:349-467`
 Connect to `SHARED_KEEP_ALIVE_PATH`, then:

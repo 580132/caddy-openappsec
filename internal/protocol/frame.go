@@ -37,6 +37,13 @@ func (w *wire) i64(v int64) {
 	w.buf = binary.LittleEndian.AppendUint64(w.buf, uint64(v))
 }
 
+// i32 writes a signed 32-bit integer in little-endian order. It mirrors the
+// C sender writing the raw int32 target_core field of the phase-2 comm frame
+// (ngx_cp_initializer.c:451-452).
+func (w *wire) i32(v int32) {
+	w.buf = binary.LittleEndian.AppendUint32(w.buf, uint32(v))
+}
+
 // port writes a uint16 in network byte order, mirroring htons() in the nginx
 // sender (ngx_cp_io.c:970,983).
 func (w *wire) port(v uint16) {
@@ -117,6 +124,15 @@ func (r *reader) i64() (int64, error) {
 		return 0, err
 	}
 	return int64(binary.LittleEndian.Uint64(b)), nil
+}
+
+// i32 reads a signed 32-bit integer in little-endian order.
+func (r *reader) i32() (int32, error) {
+	b, err := r.take(4)
+	if err != nil {
+		return 0, err
+	}
+	return int32(binary.LittleEndian.Uint32(b)), nil
 }
 
 // port reads a uint16 in network byte order.

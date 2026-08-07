@@ -32,7 +32,8 @@ func classify(b []byte, phase int) (kind frameKind, desc string) {
 		}
 	}
 	if cd, err := protocol.ParseCommData(b); err == nil {
-		return frameComm, fmt.Sprintf("COMM_DATA uid=%q user=%d group=%d", cd.UID, cd.UserID, cd.GroupID)
+		return frameComm, fmt.Sprintf("COMM_DATA uid=%q user=%d group=%d target_core=%d",
+			cd.UID, cd.UserID, cd.GroupID, cd.TargetCore)
 	}
 	if ka, err := protocol.ParseKeepAlive(b); err == nil {
 		return frameKeepAlive, fmt.Sprintf("KEEP_ALIVE worker=%d family=%q", ka.WorkerID, ka.FamilyName)

@@ -41,7 +41,7 @@ func Test_RegistrationReply_roundtrip(t *testing.T) {
 // encode -> decode unchanged.
 func Test_CommData_roundtrip(t *testing.T) {
 	// Given
-	want := &CommData{UID: "unique-id-42", UserID: 1000, GroupID: 1000}
+	want := &CommData{UID: "unique-id-42", UserID: 1000, GroupID: 1000, TargetCore: -1}
 
 	// When
 	got, err := ParseCommData(want.Encode())
@@ -93,9 +93,9 @@ func Test_Handshake_Fixtures_encode_bytes(t *testing.T) {
 		},
 		{
 			name: "comm_data_phase2",
-			hex:  "04616263640100000002000000", // len=4 "abcd" user=1 group=2
+			hex:  "04616263640100000002000000ffffffff", // len=4 "abcd" user=1 group=2 core=-1
 			enc: func() []byte {
-				return CommData{UID: "abcd", UserID: 1, GroupID: 2}.Encode()
+				return CommData{UID: "abcd", UserID: 1, GroupID: 2, TargetCore: -1}.Encode()
 			},
 		},
 		{
@@ -156,13 +156,13 @@ func Test_Handshake_Fixtures_decode(t *testing.T) {
 		},
 		{
 			name: "comm_data_phase2",
-			hex:  "04616263640100000002000000",
+			hex:  "04616263640100000002000000ffffffff",
 			decode: func(b []byte) (any, error) {
 				return ParseCommData(b)
 			},
 			check: func(t *testing.T, v any) {
 				g := v.(*CommData)
-				if g.UID != "abcd" || g.UserID != 1 || g.GroupID != 2 {
+				if g.UID != "abcd" || g.UserID != 1 || g.GroupID != 2 || g.TargetCore != -1 {
 					t.Fatalf("decoded %+v", g)
 				}
 			},

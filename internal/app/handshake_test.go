@@ -32,7 +32,8 @@ func Test_registrationFrame_layout(t *testing.T) {
 }
 
 // Test_commFrame_layout verifies the phase-2 comm frame (§G.2) byte layout:
-// [uid_size][uid][nano_user_id u32][nano_group_id u32].
+// [uid_size][uid][nano_user_id u32][nano_group_id u32][target_core i32],
+// with paired affinity disabled (target_core = -1).
 func Test_commFrame_layout(t *testing.T) {
 	// Given
 	cfg := config.EngineConfig{FamilyName: "xy"}
@@ -41,7 +42,7 @@ func Test_commFrame_layout(t *testing.T) {
 	got := commFrame(cfg)
 
 	// Then
-	want := []byte{2, 'x', 'y', 0, 0, 0, 0, 0, 0, 0, 0}
+	want := []byte{2, 'x', 'y', 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("commFrame = %v, want %v", got, want)
 	}
