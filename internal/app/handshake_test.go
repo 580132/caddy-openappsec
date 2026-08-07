@@ -33,7 +33,10 @@ func Test_registrationFrame_layout(t *testing.T) {
 
 // Test_commFrame_layout verifies the phase-2 comm frame (§G.2) byte layout:
 // [uid_size][uid][nano_user_id u32][nano_group_id u32][target_core i32],
-// with paired affinity disabled (target_core = -1).
+// with paired affinity disabled (target_core = -1). The uid is the full
+// unique id "<family>_<worker_id+1>" (ngx_cp_initializer.c:798-804); the
+// engine validates it against its own family_instance unique id and closes
+// the socket without an ack on mismatch.
 func Test_commFrame_layout(t *testing.T) {
 	// Given
 	cfg := config.EngineConfig{FamilyName: "xy"}
@@ -42,9 +45,31 @@ func Test_commFrame_layout(t *testing.T) {
 	got := commFrame(cfg)
 
 	// Then
-	want := []byte{2, 'x', 'y', 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff}
+	want := []byte{4, 'x', 'y', '_', '1', 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("commFrame = %v, want %v", got, want)
+	}
+}
+
+// Test_commUID_format verifies the phase-2 uid mirrors the nginx reference:
+// "<family>_<worker_id+1>" when a family is set, else just "<worker_id+1>".
+func Test_commUID_format(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.EngineConfig
+		want string
+	}{
+		{"family and default worker", config.EngineConfig{FamilyName: "caddy"}, "caddy_1"},
+		{"family and worker 3", config.EngineConfig{FamilyName: "caddy", WorkerID: 3}, "caddy_4"},
+		{"no family", config.EngineConfig{WorkerID: 0}, "1"},
+		{"no family worker 5", config.EngineConfig{WorkerID: 5}, "6"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := commUID(tt.cfg); got != tt.want {
+				t.Fatalf("commUID() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

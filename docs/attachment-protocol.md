@@ -504,6 +504,14 @@ then reads a 1-byte ack (`nano_initializer.c:392-398`). `target_core` is the
 paired-core affinity hint (`ngx_cp_initializer.c:430-452`); the attachment
 sends `-1` (unpaired) or the worker's target core.
 
+`unique_id` is the attachment's instance-aware identity: `<family>_<worker_id+1>`
+(`ngx_cp_initializer.c:798-804`), i.e. the container/family name joined with the
+1-based worker id. The engine validates it against its own unique id
+(`instance_awareness.cc:48-58`, `family_instance`) and **closes the comm socket
+without an ack on mismatch** (`nginx_attachment.cc getUidFromSocket`), so the
+plain family name alone is not accepted. This module sends
+`<family_name>_<worker_id+1>` (`internal/app/handshake.go commUID`).
+
 ### G.3 Keep-alive — `nano_attachment.c:497-543`, `ngx_http_cp_attachment_module.c:349-467`
 Connect to `SHARED_KEEP_ALIVE_PATH`, then:
 ```
