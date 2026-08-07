@@ -266,13 +266,18 @@ func (h *Handler) writeBlock(w http.ResponseWriter, verdict *protocol.Verdict) e
 	return nil
 }
 
-// requestStart builds the REQUEST_START metadata block for the engine.
+// requestStart builds the REQUEST_START metadata block for the engine. The
+// engine's transaction parser (HttpTransactionData::createTransactionData,
+// http_transaction_data.cc:155-188) strictly validates both IP addresses, so
+// ListeningIP and ClientIP must be real addresses — an empty string fails
+// deserialization and the whole transaction is rejected with a default ACCEPT.
 func (h *Handler) requestStart(r *http.Request) protocol.RequestStart {
 	host, port := splitHostPort(r.Host)
 	return protocol.RequestStart{
 		HTTPProtocol:  r.Proto,
 		Method:        r.Method,
 		Host:          host,
+		ListeningIP:   localIP(r),
 		ListeningPort: port,
 		UnparsedURI:   r.RequestURI,
 		ClientIP:      remoteIP(r),
@@ -281,6 +286,26 @@ func (h *Handler) requestStart(r *http.Request) protocol.RequestStart {
 		ParsedURI:     r.URL.RequestURI(),
 		WAFTag:        "",
 	}
+}
+
+// localIP extracts the address the request was received on, from the server
+// side of the connection. Caddy exposes it via http.LocalAddrContextKey on the
+// request context (the Go standard library's net/http does the same); the
+// engine rejects an empty listening address, so a missing LocalAddr falls back
+// to the remote IP to keep the transaction parseable.
+func localIP(r *http.Request) string {
+	if addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && addr != nil {
+		if host, _, err := net.SplitHostPort(addr.String()); err == nil {
+			return host
+		}
+	}
+	// LocalAddr absent or malformed: fall back to the peer address so the
+	// engine still receives a parseable IP (the reference reads the
+	// listening addr from the server socket, ngx_cp_io.c:963).
+	if ip := remoteIP(r); ip != "" {
+		return ip
+	}
+	return "0.0.0.0"
 }
 
 // requestHeaders returns the request headers in wire order. Host is first
@@ -328,10 +353,16 @@ func splitHostPort(hostport string) (string, uint16) {
 	return host, uint16(port)
 }
 
-// remoteIP and remotePort split the peer address recorded by Caddy.
+// remoteIP and remotePort split the peer address recorded by Caddy. The engine
+// rejects an empty client IP (http_transaction_data.cc:176-181), so an absent
+// or malformed RemoteAddr falls back to a loopback address to keep the
+// transaction parseable.
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		if r.RemoteAddr == "" {
+			return "127.0.0.1"
+		}
 		return r.RemoteAddr
 	}
 	return host

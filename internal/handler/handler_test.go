@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -666,6 +667,53 @@ func Test_Handler_RequestMetadata_sent_to_engine(t *testing.T) {
 	if !sawMetadata {
 		t.Fatalf("no REQUEST_START with the expected metadata among frames: %v", frames)
 	}
+}
+
+// Test_Handler_RequestStart_IPs_are_valid verifies requestStart always fills
+// ListeningIP and ClientIP with parseable addresses. The engine's transaction
+// parser rejects an empty IP (http_transaction_data.cc:155-188), which would
+// make every request fall back to a default ACCEPT and never block attacks.
+func Test_Handler_RequestStart_IPs_are_valid(t *testing.T) {
+	h := &Handler{}
+	h.SetDefaults()
+
+	// A standard request with both RemoteAddr and a server-side LocalAddr in
+	// context (as Caddy sets via http.LocalAddrContextKey).
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.7:52341"
+	req = req.WithContext(contextWithLocalAddr(req.Context(), "127.0.0.1:8070"))
+
+	rs := h.requestStart(req)
+	if rs.ListeningIP == "" {
+		t.Fatal("ListeningIP is empty; the engine would reject the transaction")
+	}
+	if rs.ClientIP == "" {
+		t.Fatal("ClientIP is empty; the engine would reject the transaction")
+	}
+	if net.ParseIP(rs.ListeningIP) == nil {
+		t.Fatalf("ListeningIP = %q, want a valid IP", rs.ListeningIP)
+	}
+	if net.ParseIP(rs.ClientIP) == nil {
+		t.Fatalf("ClientIP = %q, want a valid IP", rs.ClientIP)
+	}
+
+	// A request with no local address in context must still produce a
+	// parseable (fallback) listening IP rather than empty.
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.RemoteAddr = "198.51.100.9:40000"
+	rs2 := h.requestStart(req2)
+	if net.ParseIP(rs2.ListeningIP) == nil {
+		t.Fatalf("fallback ListeningIP = %q, want a valid IP", rs2.ListeningIP)
+	}
+	if net.ParseIP(rs2.ClientIP) == nil {
+		t.Fatalf("ClientIP = %q, want a valid IP", rs2.ClientIP)
+	}
+}
+
+// contextWithLocalAddr returns a context carrying a net.Addr under
+// http.LocalAddrContextKey, mimicking Caddy's per-request server address.
+func contextWithLocalAddr(parent context.Context, addr string) context.Context {
+	return context.WithValue(parent, http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP(strings.Split(addr, ":")[0]), Port: 8070})
 }
 
 // Test_Handler_Provision_fails_open_when_engine_unreachable verifies
