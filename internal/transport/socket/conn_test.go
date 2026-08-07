@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -233,21 +235,65 @@ func Test_Conn_Send_returns_ctx_error_when_ctx_already_cancelled(t *testing.T) {
 }
 
 func Test_Conn_Send_aborts_when_context_cancelled_while_blocked(t *testing.T) {
-	// Given a payload too large for the socket buffer, so the write blocks
-	// with the peer not reading
-	client, _ := newPair(t)
+	// Given a Send blocked on a full send buffer (emulated by a fake conn
+	// whose payload Write blocks until a write deadline is imposed). A real
+	// TCP conn cannot guarantee this on every platform: Windows loopback
+	// autotuning absorbs a 200 MiB write without blocking, while Linux CI
+	// blocks and can race the peer conn's GC finalizer into a spurious RST.
+	// The fake conn pins the watchdog behavior deterministically.
+	client := &conn{netConn: newFullBufferConn(t)}
 	ctx, cancel := context.WithCancel(context.Background())
 	sendErr := make(chan error, 1)
 	go func() {
 		sendErr <- client.Send(ctx, bytes.Repeat([]byte{0xaa}, 200<<20))
 	}()
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the payload write is provably blocked before cancelling,
+	// so the cancel interrupts an in-flight write instead of racing it.
+	<-client.netConn.(*fullBufferConn).started
 	// When the context is cancelled
 	cancel()
 	// Then the blocked Send unblocks with ctx.Err()
 	if err := waitErr(t, sendErr); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Send: got %v, want context.Canceled", err)
 	}
+}
+
+// fullBufferConn emulates a TCP conn whose send buffer is always full: the
+// first Write (the frame header) succeeds, and every subsequent Write blocks
+// until a write deadline is imposed — exactly how a real blocked socket
+// write behaves when Send's watchdog trips the deadline. SetWriteDeadline
+// records the imposed deadline instead of touching a real socket.
+type fullBufferConn struct {
+	net.Conn
+	started chan struct{} // closed once the header write has been accepted
+	// deadline is the deadline imposed by SetWriteDeadline; Write blocks
+	// until it is set, then fails as a timeout.
+	deadline chan time.Time
+	first    bool
+}
+
+func newFullBufferConn(t *testing.T) *fullBufferConn {
+	t.Helper()
+	return &fullBufferConn{
+		started:  make(chan struct{}),
+		deadline: make(chan time.Time, 1),
+		first:    true,
+	}
+}
+
+func (c *fullBufferConn) Write(p []byte) (int, error) {
+	if c.first {
+		c.first = false
+		close(c.started)
+		return len(p), nil
+	}
+	<-c.deadline // block until the watchdog imposes a write deadline
+	return 0, &net.OpError{Op: "write", Net: "tcp", Err: os.ErrDeadlineExceeded}
+}
+
+func (c *fullBufferConn) SetWriteDeadline(t time.Time) error {
+	c.deadline <- t
+	return nil
 }
 
 func Test_Conn_Recv_prefers_ErrClosed_over_cancelled_ctx(t *testing.T) {
