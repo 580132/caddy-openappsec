@@ -220,7 +220,13 @@ UNKNOWN_COMPRESSION = NO_COMPRESSION  // 0
 queue_name = "__cp_nano_%s_shared_memory_%s__"
 ```
 - `%s` #1 = direction: `"rx"` or `"tx"` (derived from `isTowardsOwner(is_owner, is_tx_queue)`).
-- `%s` #2 = the attachment's unique name (the `name` argument to `initIpc`).
+- `%s` #2 = the attachment's unique id (the `name` argument to `initIpc`). The
+  service passes `inst_awareness->getUniqueID()` = `<family>_<instance>`
+  (`nginx_attachment.cc:537-538`), and the nginx attachment passes its
+  `unique_id` (`ngx_cp_initializer.c:886-887,999`) — the same string sent in
+  the phase-2 comm frame (§G.2). This module therefore derives the name from
+  `config.EngineConfig.UniqueID()` (`internal/transport/linux/ring_linux.go`),
+  never the bare family name.
 - Shmem file path: `/dev/shm/<queue_name>` (`shmem_ipc.c:137`).
 - Owner `chmod`s the file to `0666` (`shmem_ipc.c:142`).
 
@@ -510,7 +516,9 @@ sends `-1` (unpaired) or the worker's target core.
 (`instance_awareness.cc:48-58`, `family_instance`) and **closes the comm socket
 without an ack on mismatch** (`nginx_attachment.cc getUidFromSocket`), so the
 plain family name alone is not accepted. This module sends
-`<family_name>_<worker_id+1>` (`internal/app/handshake.go commUID`).
+`config.EngineConfig.UniqueID()` = `<family_name>_<worker_id+1>` — the same
+string it later uses as the shared-memory queue name (§D.1), so the two wire
+identities cannot drift.
 
 ### G.3 Keep-alive — `nano_attachment.c:497-543`, `ngx_http_cp_attachment_module.c:349-467`
 Connect to `SHARED_KEEP_ALIVE_PATH`, then:

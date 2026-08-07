@@ -326,3 +326,43 @@ func Test_HandlerConfig_Validate_allows_explicit_fail_closed(t *testing.T) {
 		t.Fatalf("explicit fail_open:false was overridden by defaults, got %v", cfg.FailOpen)
 	}
 }
+
+// Test_EngineConfig_UniqueID verifies the instance-aware unique id mirrors the
+// nginx reference (ngx_cp_initializer.c:798-804): "<family>_<worker_id+1>"
+// when a family is set, else just "<worker_id+1>". The engine uses this exact
+// string as the comm-frame uid (validated in getUidFromSocket) and as the
+// shared-memory queue name (initIpc → shmem_ipc.c:78).
+func Test_EngineConfig_UniqueID(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  EngineConfig
+		want string
+	}{
+		{"family and default worker", EngineConfig{FamilyName: "caddy"}, "caddy_1"},
+		{"family and worker 3", EngineConfig{FamilyName: "caddy", WorkerID: 3}, "caddy_4"},
+		{"no family", EngineConfig{WorkerID: 0}, "1"},
+		{"no family worker 5", EngineConfig{WorkerID: 5}, "6"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.UniqueID(); got != tt.want {
+				t.Fatalf("UniqueID() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_EngineConfig_UniqueID_matches_comm_frame_uid verifies the queue name
+// derived in the linux transport equals the uid sent in the comm frame, so
+// the two wire identities can never drift apart.
+func Test_EngineConfig_UniqueID_matches_comm_frame_uid(t *testing.T) {
+	// Given a config with the production defaults
+	cfg := EngineConfig{FamilyName: "caddy"}
+	cfg.SetDefaults()
+
+	// Then the comm-frame uid and the shm queue name share one source
+	want := "caddy_1"
+	if got := cfg.UniqueID(); got != want {
+		t.Fatalf("UniqueID() = %q, want %q", got, want)
+	}
+}

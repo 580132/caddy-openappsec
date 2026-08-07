@@ -42,10 +42,13 @@ Concretely (`internal/app/dialer_linux.go`, `internal/transport/linux/`):
    and completes the two-phase handshake (protocol doc G.1/G.2). Phase 1
    returns the verdict signal path; phase 2 sends the family name.
 2. **Traffic** — `OpenRing` opens the two one-way shared-memory ring queues
-   named `__cp_nano_<family>_shared_memory_<dir>__` in `/dev/shm`
-   (`internal/transport/linux/ring_linux.go`). The agent creates and sizes the
-   files; the module only opens them `O_RDWR`. Request metadata goes in the tx
-   queue, verdicts come back in the rx queue.
+   named `__cp_nano_<unique_id>_shared_memory_<dir>__` in `/dev/shm`
+   (`internal/transport/linux/ring_linux.go`), where `<unique_id>` is
+   `config.EngineConfig.UniqueID()` = `<family>_<worker_id+1>` — the same value
+   sent in the phase-2 comm frame. The agent creates and sizes the files under
+   that id (`initIpc(curr_instance_unique_id)`, `nginx_attachment.cc:537-538`);
+   the module only opens them `O_RDWR`. Request metadata goes in the tx queue,
+   verdicts come back in the rx queue.
 3. **Keep-alive** — `DialKeepAlive` uses a separate raw AF_UNIX socket
    (`...-expiration-socket`, protocol doc G.3), never the ring, so foreign
    frames cannot corrupt the shared-memory queues.
@@ -121,9 +124,10 @@ Notes:
   `internal/e2e/harness.go`).
 - An empty `transport` resolves to `shm` on linux (the platform default), so
   it can be omitted.
-- `family_name` names the ring queues the agent creates. It must be unique
-  per Caddy instance on a host — two Caddy processes with the same
-  `family_name` fight over the same queues.
+- `family_name` (with the worker id) names the ring queues the agent creates
+  via `EngineConfig.UniqueID()`. It must be unique per Caddy instance on a
+  host — two Caddy processes with the same `family_name` fight over the same
+  queues.
 - Replace `respond "hello from origin"` with `reverse_proxy` to your real
   backend (the directive order already places openappsec before it).
 
@@ -139,7 +143,7 @@ Notes:
 
    ```
    ls -la /dev/shm/check-point/                      # the three AF_UNIX sockets
-   ls -la /dev/shm/ | grep cp_nano                  # __cp_nano_<family>_shared_memory_*
+   ls -la /dev/shm/ | grep cp_nano                  # __cp_nano_<unique_id>_shared_memory_*
    ```
 
    If the ring files are missing, the agent has not registered the family
@@ -161,6 +165,7 @@ Notes:
 | `isCorruptedShmem` in agent logs, no inspection | `:latest` agent with a shmem protocol incompatible with the module | Pin `ghcr.io/openappsec/agent:1.1.33` + `--no-upgrade` |
 | `No such file or directory` on the signal socket | Container `/dev/shm` not shared with the agent | `ipc: host` on both services; check `/dev/shm/check-point` is the same mount in both |
 | Ring files `__cp_nano_*_shared_memory_*__` never appear | Family name mismatch, or agent never registered the family | Same `family_name` as expected by the agent config; restart the agent after changing it |
+| `open write queue "...__cp_nano_rx_shared_memory_<family>__": no such file` | Module opened the bare family name; the agent names queues `<family>_<worker_id+1>` | Use the fixed image (`>= sha-6972947`) which derives the queue name from `UniqueID()`; wipe stale `/dev/shm/__cp_nano_*` first |
 | Requests pass through, no block pages | Fail-open default and the engine is unreachable | Confirm the agent container is running and `/dev/shm` is shared; look for the "failing open" warning in caddy logs |
 | `engine shared-memory transport is only available on linux` | Running on Windows/macOS | This stack is linux-only; use the mock engine over `transport socket` locally |
 | Registrations expire / engine forgets the attachment | Keep-alive interval at or above the engine's 300000 ms window | Lower `keep_alive_interval_ms` |

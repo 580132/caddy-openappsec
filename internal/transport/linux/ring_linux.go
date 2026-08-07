@@ -21,21 +21,22 @@ const defaultPollInterval = 5 * time.Millisecond
 
 // OpenRing opens the attachment's two one-way shared-memory ring queues and
 // returns a single message-framed connection over them. The queue name is the
-// attachment's unique name, which the app sends to the engine in the phase-2
-// comm frame as cfg.FamilyName (internal/app/handshake.go commFrame); the C
-// reference passes the same value to initIpc as the queue name
-// (nano_initializer.c:867-875, shmem_ipc.c:104). The service files live in
-// /dev/shm (shmem_ipc.c:137) and follow the pattern
-// "__cp_nano_%s_shared_memory_%s__" (shmem_ipc.c:108). The attachment writes
-// requests into the service's tx queue and reads verdicts from the service's
-// rx queue (shmem_ipc.c:85-90), so Send and Recv on the returned connection
-// each target a different file.
+// attachment's unique id — cfg.UniqueID(), the same value the app sends in the
+// phase-2 comm frame (internal/app/handshake.go commFrame) — because the
+// engine creates its queues under that id: initIpc(curr_instance_unique_id)
+// (nginx_attachment.cc:537-538) names the files
+// "__cp_nano_%s_shared_memory_<unique_id>__" (shmem_ipc.c:78,108). The C
+// reference passes the same unique id to initIpc (ngx_cp_initializer.c:886-887,
+// 999). The service files live in /dev/shm (shmem_ipc.c:98) and follow the
+// pattern "__cp_nano_%s_shared_memory_%s__" (shmem_ipc.c:78). The attachment
+// writes requests into the service's rx queue and reads verdicts from the
+// service's tx queue (shmem_ipc.c:85-90), so Send and Recv on the returned
+// connection each target a different file.
 //
 // verdictPath is the comm socket path the engine assigned in phase 1 (§G.2);
 // it is accepted for signature compatibility with the app layer, but the queue
-// name is derived from cfg.FamilyName, which is the unique id the app already
-// sent in the comm frame. The app layer calls OpenRing only after the
-// registration/comm handshake (§G) completes, because the service must have
+// name is derived from cfg.UniqueID(). The app layer calls OpenRing only after
+// the registration/comm handshake (§G) completes, because the service must have
 // created and sized the queues first; the queue geometry (segment size
 // 1024/4096, segment count) is read from the shared header rather than passed
 // in.
@@ -43,11 +44,12 @@ func OpenRing(ctx context.Context, verdictPath string, cfg config.EngineConfig) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if cfg.FamilyName == "" {
-		return nil, fmt.Errorf("linux: OpenRing: empty family_name (queue name)")
+	name := cfg.UniqueID()
+	if name == "" {
+		return nil, fmt.Errorf("linux: OpenRing: empty unique id (queue name)")
 	}
-	writePath := filepath.Join("/dev/shm", queueFileName(dirWrite, cfg.FamilyName))
-	readPath := filepath.Join("/dev/shm", queueFileName(dirRead, cfg.FamilyName))
+	writePath := filepath.Join("/dev/shm", queueFileName(dirWrite, name))
+	readPath := filepath.Join("/dev/shm", queueFileName(dirRead, name))
 	writeQ, err := openRingQueue(writePath)
 	if err != nil {
 		return nil, fmt.Errorf("linux: open write queue %q: %w", writePath, err)

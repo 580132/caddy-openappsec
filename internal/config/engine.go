@@ -94,6 +94,22 @@ type EngineConfig struct {
 	LogLevel string `json:"log_level,omitempty"`
 }
 
+// UniqueID returns the instance-aware identity this attachment presents to
+// the engine: "<family>_<worker_id+1>" when a family name is set, else just
+// "<worker_id+1>" — mirroring the nginx reference (ngx_cp_initializer.c:798-804).
+// The engine uses this same value as the shared-memory queue name
+// (nginx_attachment.cc:537-538 initIpc(curr_instance_unique_id) →
+// shmem_ipc.c:78 "__cp_nano_%s_shared_memory_%s__") and validates the phase-2
+// comm uid against it (nginx_attachment.cc getUidFromSocket), so every wire
+// value that names the instance — the comm-frame uid and the shm queue name —
+// must be this exact string.
+func (c *EngineConfig) UniqueID() string {
+	if c.FamilyName != "" {
+		return fmt.Sprintf("%s_%d", c.FamilyName, c.WorkerID+1)
+	}
+	return fmt.Sprintf("%d", c.WorkerID+1)
+}
+
 // SetDefaults fills zero-valued fields with the openappsec reference defaults.
 // Fields explicitly set by the user are left untouched, so an empty config
 // becomes the reference default configuration. Call before Validate.

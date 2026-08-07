@@ -36,28 +36,18 @@ func registrationFrame(cfg config.EngineConfig) []byte {
 // [uid_size][uid][nano_user_id u32][nano_group_id u32][target_core i32],
 // little-endian ids. user and group ids are zero (the reference reads them
 // from the process, which this attachment has no equivalent of). target_core
-// is -1: paired affinity is disabled (ngx_cp_initializer.c:430,447).
+// is -1: paired affinity is disabled (ngx_cp_initializer.c:430,447). The uid
+// is cfg.UniqueID() — the engine validates it against its own instance-aware
+// unique id (instance_awareness.cc:48-58, family_instance) and closes the
+// comm socket without an ack on mismatch (nginx_attachment.cc
+// getUidFromSocket), so the plain family name is not enough.
 func commFrame(cfg config.EngineConfig) []byte {
 	return (protocol.CommData{
-		UID:        commUID(cfg),
+		UID:        cfg.UniqueID(),
 		UserID:     0,
 		GroupID:    0,
 		TargetCore: -1,
 	}).Encode()
-}
-
-// commUID builds the phase-2 UID the same way the nginx reference does
-// (ngx_cp_initializer.c:798-804): "<family>_<worker_id+1>" when a family name
-// is set, else just "<worker_id+1>". The engine validates this against its own
-// instance-aware unique id (family_instance, instance_awareness.cc:48-58) and
-// closes the comm socket without an ack on mismatch
-// (nginx_attachment.cc getUidFromSocket), so the plain family name is not
-// enough.
-func commUID(cfg config.EngineConfig) string {
-	if cfg.FamilyName != "" {
-		return fmt.Sprintf("%s_%d", cfg.FamilyName, cfg.WorkerID+1)
-	}
-	return fmt.Sprintf("%d", cfg.WorkerID+1)
 }
 
 // register runs phase 1 of the handshake over conn (docs/attachment-protocol.md
