@@ -46,6 +46,11 @@ type EngineConn interface {
 // string: the linux implementation will treat it as the engine socket path,
 // and the in-memory implementation treats it as a registration key.
 type Listener interface {
+	// Addr returns the address the listener is bound to, in the same opaque
+	// string form used by Dial. For a listener bound to an ephemeral port
+	// it reports the actual port that was allocated.
+	Addr() string
+
 	// Accept returns the next connection, blocking until one is available
 	// or the listener is closed. If the listener is closed, Accept returns
 	// nil, ErrClosed.
