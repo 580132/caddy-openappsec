@@ -34,6 +34,9 @@ func init() {
 //	    block_page_title      "Request blocked"
 //	    block_page_body       "Your request was blocked by the security policy."
 //	    fail_open             true
+//	    custom_headers {
+//	        X-WAF-Engine openappsec
+//	    }
 //	}
 func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	hnd := new(Handler)
@@ -98,6 +101,17 @@ func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error)
 					return nil, h.Errf("skip_compressed_body_inspection: invalid boolean %q", h.Val())
 				}
 				hnd.SkipCompressedBodyInspection = b
+			case "custom_headers":
+				if hnd.CustomHeaders == nil {
+					hnd.CustomHeaders = make(map[string]string)
+				}
+				for h.NextBlock(1) {
+					key := h.Val()
+					if !h.NextArg() {
+						return nil, h.ArgErr()
+					}
+					hnd.CustomHeaders[key] = h.Val()
+				}
 			default:
 				return nil, h.Errf("unrecognized openappsec option %q", h.Val())
 			}

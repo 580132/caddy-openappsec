@@ -32,28 +32,28 @@ const (
 // so it can be inspected and re-emitted after the verdict.
 type Handler struct {
 	// Engine is the open-appsec engine connection configuration.
-	Engine config.EngineConfig
+	Engine config.EngineConfig `json:"engine,omitempty"`
 	// Mode is ModePrevent (default; verdicts enforced) or ModeLearn
 	// (verdicts logged only, requests always forwarded).
-	Mode config.Mode
+	Mode config.Mode `json:"mode,omitempty"`
 	// BodyBufferLimit caps the request body buffered for inspection.
-	BodyBufferLimit int
+	BodyBufferLimit int `json:"body_buffer_limit,omitempty"`
 	// ResponseBufferLimit caps the response body buffered for inspection.
-	ResponseBufferLimit int
+	ResponseBufferLimit int `json:"response_buffer_limit,omitempty"`
 	// BlockStatusCode is the HTTP status returned for blocked requests.
-	BlockStatusCode int
+	BlockStatusCode int `json:"block_status_code,omitempty"`
 	// BlockPageTitle is the title of the synthesized block response page.
-	BlockPageTitle string
+	BlockPageTitle string `json:"block_page_title,omitempty"`
 	// BlockPageBody is the body of the synthesized block response page.
-	BlockPageBody string
+	BlockPageBody string `json:"block_page_body,omitempty"`
 	// FailOpen is nil for the default (fail-open). Set it explicitly to
 	// false to fail closed when the engine is unavailable.
-	FailOpen *bool
+	FailOpen *bool `json:"fail_open,omitempty"`
 	// SkipCompressedBodyInspection disables decompressing compressed request
 	// bodies for inspection.
-	SkipCompressedBodyInspection bool
+	SkipCompressedBodyInspection bool `json:"skip_compressed_body_inspection,omitempty"`
 	// CustomHeaders are extra headers attached to block responses.
-	CustomHeaders map[string]string
+	CustomHeaders map[string]string `json:"custom_headers,omitempty"`
 
 	// logger is the module logger, built in Provision.
 	logger *zap.Logger
