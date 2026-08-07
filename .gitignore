@@ -5,7 +5,8 @@
 *.so
 *.dylib
 bin/
-caddy
+/caddy
+/caddy.exe
 
 # Test artifacts
 *.test
