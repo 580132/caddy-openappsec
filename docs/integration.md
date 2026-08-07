@@ -605,6 +605,9 @@ the address so a fresh engine can bind it again, and clients observe
   - J: compression pools and brotli gating
   - K: discrepancies and inferred items
 - `README.md`, the user-facing companion (written by a sibling task).
+- `docs/real-agent-deployment.md`, deploying against the real
+  `ghcr.io/openappsec/agent` over the linux shm transport
+  (`docker-compose.agent.yml`, `Caddyfile.agent`).
 - `Dockerfile` and `docker-compose.yml`, deployment artifacts (written by a
   sibling task).
 - `internal/e2e`, the cross-process end-to-end suite

@@ -276,7 +276,8 @@ curl http://localhost:8080/
 
 ## Docs
 
-- `docs/integration.md` — deploying with the real open-appsec engine.
+- `docs/integration.md` — deep integration and operations guide (every config knob, lifecycle, fail-open semantics).
+- `docs/real-agent-deployment.md` — deploying against the real open-appsec agent (`ghcr.io/openappsec/agent`) over the linux shm transport, with `docker-compose.agent.yml`.
 - `docs/attachment-protocol.md` — the byte-level wire protocol contract this module implements.
 
 ## License

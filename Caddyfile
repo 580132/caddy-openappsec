@@ -1,20 +1,25 @@
 # Local demo Caddyfile for the docker-compose stack.
-# The openappsec directive is the first handler in the route, so every
-# request is inspected before the origin handler responds.
+# The openappsec directive and the origin handler are wrapped in a `route`
+# block: Caddy preserves the written order inside `route`, so the WAF verdict
+# gates the origin. (At the top level, Caddy sorts directives by its own
+# order, where `respond` precedes `reverse_proxy`, so openappsec — registered
+# before reverse_proxy — would run AFTER respond and never see the request.)
 #
 # The engine connects to the mockengine service over the TCP socket transport
 # (tcp://mockengine:9000 inside the compose network). keep_alive_interval_ms
 # is left at its default (300000 ms) — do not lower it here.
 
 :80 {
-	openappsec {
-		engine {
-			transport socket
-			registration_socket tcp://mockengine:9000
-			keep_alive_path tcp://mockengine:9000
-			family_name caddy-e2e
+	route {
+		openappsec {
+			engine {
+				transport socket
+				registration_socket tcp://mockengine:9000
+				keep_alive_path tcp://mockengine:9000
+				family_name caddy-e2e
+			}
 		}
-	}
 
-	respond "hello from origin"
+		respond "hello from origin"
+	}
 }

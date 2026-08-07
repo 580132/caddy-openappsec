@@ -1,0 +1,55 @@
+# Real open-appsec agent stack for caddy-openappsec (linux production).
+#
+# Unlike docker-compose.yml (which uses the mock engine over the TCP socket
+# transport), this stack runs the real open-appsec nano agent
+# (ghcr.io/openappsec/agent) and connects caddy to it over the linux
+# shared-memory (shm) transport.
+#
+# CRITICAL: both containers must share the host's /dev/shm. The agent creates
+# the AF_UNIX signal sockets under /dev/shm/check-point/ and the ring queues
+# directly under /dev/shm/ (__cp_nano_<family>_shared_memory_<dir>__), and the
+# module opens those exact paths. Sharing only /dev/shm/check-point is NOT
+# enough — the ring queues live in /dev/shm itself, so use ipc: host (the
+# whole host IPC namespace, which includes /dev/shm) on both services.
+#
+# Linux host required: the shm transport only compiles on linux, and /dev/shm
+# semantics under Docker Desktop are unreliable. Do not run this stack on
+# Windows/macOS Docker.
+#
+# Version pinning: the agent image is pinned to 1.1.33, not :latest. The
+# :latest tag has shipped shared-memory protocol revisions incompatible with
+# attachment modules (openappsec/open-appsec-npm#64, "isCorruptedShmem").
+# --no-upgrade prevents the agent from self-upgrading past the pinned image.
+#
+# Usage:
+#   export APPSEC_TOKEN="<your agent token>"
+#   docker compose -f docker-compose.agent.yml up -d
+#   curl http://localhost:8080/
+
+services:
+  agent:
+    image: ghcr.io/openappsec/agent:1.1.33
+    container_name: openappsec-agent
+    ipc: host
+    restart: unless-stopped
+    environment:
+      - user_email=${APPSEC_EMAIL:-}     # optional: for central WebUI (SaaS) registration
+    volumes:
+      - ./appsec-conf:/etc/cp/conf
+      - ./appsec-data:/etc/cp/data
+      - ./appsec-logs:/var/log/nano_agent
+    command: /cp-nano-agent --token ${APPSEC_TOKEN:?set APPSEC_TOKEN in the environment} --no-upgrade
+
+  caddy:
+    image: ghcr.io/580132/caddy-openappsec
+    container_name: caddy-openappsec
+    ipc: host
+    restart: unless-stopped
+    depends_on:
+      - agent
+    ports:
+      - "8080:80"
+    volumes:
+      # Override the repo Caddyfile (which targets the mock engine) with the
+      # shm-transport config for the real agent.
+      - ./Caddyfile.agent:/etc/caddy/Caddyfile:ro

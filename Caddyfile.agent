@@ -1,0 +1,27 @@
+# Caddyfile for a real open-appsec agent deployment (docker-compose.agent.yml).
+# Connect this Caddy to ghcr.io/openappsec/agent over the linux shared-memory
+# (shm) transport instead of the mock engine's TCP socket.
+#
+# Everything is wrapped in a `route` block so Caddy preserves the written
+# order and the WAF verdict gates the origin. At the top level Caddy would
+# sort `respond` before `openappsec` and the request would never be inspected.
+#
+# The transport is left empty: on linux an empty transport resolves to the shm
+# transport, and the three default paths (registration_socket,
+# keep_alive_path, verdict_signal_path) point at the standard agent locations
+# under /dev/shm/check-point/. Only family_name is required; it names the
+# shared-memory ring queues the agent creates (/dev/shm/__cp_nano_<family>
+# _shared_memory_<dir>__), so it must be unique per Caddy instance on a host.
+
+:80 {
+	route {
+		openappsec {
+			engine {
+				family_name caddy
+			}
+		}
+
+		# Replace with your real origin, e.g. reverse_proxy 10.0.0.5:8080
+		respond "hello from origin"
+	}
+}
