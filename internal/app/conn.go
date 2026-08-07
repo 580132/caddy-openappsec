@@ -194,6 +194,29 @@ func (c *Conn) recv(ctx context.Context) ([]byte, error) {
 	return conn.Recv(ctx)
 }
 
+// recvQueued returns the next already-queued frame from the engine without
+// waiting for a new comm echo. The linux shm transport writes one verdict
+// frame per request chunk to the ring but signals the comm socket only when it
+// finishes draining, so the verdict waiter drains the queued frames after the
+// echo-driven Recv. Transports without this support return a "drained" signal
+// (an error), which the waiter treats as end-of-batch.
+func (c *Conn) recvQueued() ([]byte, error) {
+	c.recvMu.Lock()
+	defer c.recvMu.Unlock()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, transport.ErrClosed
+	}
+	conn := c.conn
+	c.mu.Unlock()
+	rq, ok := conn.(transport.RingDrainer)
+	if !ok {
+		return nil, transport.ErrClosed // not a drainable transport: treat as drained
+	}
+	return rq.RecvQueued()
+}
+
 // SendRequest opens an inspection session: it allocates a session id, sends
 // the full request transaction (REQUEST_START metadata, REQUEST_HEADER bulk,
 // REQUEST_BODY chunks, REQUEST_END), and returns the id. The engine produces

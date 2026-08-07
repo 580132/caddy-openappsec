@@ -137,16 +137,15 @@ func (p *FailOpenPolicy) AcquireResponseVerdict(ctx context.Context, code int, c
 	return v, nil
 }
 
-// await collects the final verdict for sid from the engine. The engine replies
-// per chunk: intermediate frames (INSPECT) arrive after REQUEST_START/HEADER/
-// BODY and are skipped, and the terminal verdict (ACCEPT, DROP,
-// CUSTOM_RESPONSE, or IRRELEVANT) is the one produced at REQUEST_END
-// (nginx_attachment.cc handleRequestFromQueue, waap_component_impl.cc
-// respond(EndRequestEvent)). It polls until the verdict budget expires: a
-// REQUEST_DELAYED_VERDICT frame holds for HoldVerdictRetries x
-// HoldVerdictPollingMs before re-polling; unrelated frames are skipped at the
-// FailOpenTimeoutMs poll interval. The fail-open decision belongs to the
-// caller.
+// await collects the final verdict for sid from the engine. The engine writes
+// one verdict frame per chunk to the ring (INSPECT for REQUEST_START/HEADER/
+// BODY, the terminal ACCEPT/DROP/CUSTOM_RESPONSE/IRRELEVANT for REQUEST_END)
+// but signals the comm socket only when it finishes draining, so after each
+// echo-driven Recv the waiter drains the remaining queued verdict frames with
+// RecvQueued. Intermediate INSPECT frames are skipped; a REQUEST_DELAYED_VERDICT
+// frame holds for HoldVerdictRetries x HoldVerdictPollingMs before re-polling.
+// The wait is bounded by the verdict budget (verdictBudget); the fail-open
+// decision belongs to the caller.
 func (p *FailOpenPolicy) await(ctx context.Context, c *Conn, sid uint32) (*protocol.Verdict, error) {
 	poll := time.Duration(p.cfg.FailOpenTimeoutMs) * time.Millisecond
 	if poll <= 0 {
@@ -163,10 +162,27 @@ func (p *FailOpenPolicy) await(ctx context.Context, c *Conn, sid uint32) (*proto
 			return nil, err
 		}
 		if v, err := protocol.ParseVerdict(payload); err == nil && v.SessionID == sid {
-			// Skip intermediate INSPECT verdicts: the final decision is the
-			// terminal kind produced at REQUEST_END.
+			// Intermediate INSPECT frames are followed by the terminal verdict
+			// already queued in the ring; drain without waiting for another echo.
 			if v.Kind != protocol.VerdictInspect {
 				return v, nil
+			}
+			for {
+				q, err := c.recvQueued()
+				if err != nil {
+					break // ring drained (errRingEmpty) or closed
+				}
+				vq, perr := protocol.ParseVerdict(q)
+				if perr == nil && vq.SessionID == sid {
+					if vq.Kind != protocol.VerdictInspect {
+						return vq, nil
+					}
+					continue
+				}
+				if d, derr := protocol.ParseDelayedVerdict(q); derr == nil && d.SessionID == sid {
+					time.Sleep(hold)
+					continue
+				}
 			}
 			continue
 		}

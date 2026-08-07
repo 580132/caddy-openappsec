@@ -23,6 +23,15 @@ type FlowSerial interface {
 	UnlockFlow()
 }
 
+// RingDrainer is implemented by EngineConns whose peer may write several
+// messages to the ring per comm echo. The linux shm engine writes one verdict
+// frame per request chunk (INSPECT for START/HEADER/BODY, terminal for END)
+// but signals the comm socket only when it finishes draining, so after the
+// echo-driven Recv the waiter drains the queued frames with RecvQueued.
+type RingDrainer interface {
+	RecvQueued() ([]byte, error)
+}
+
 // EngineConn is a byte-oriented, message-framed connection to the
 // open-appsec engine. It moves opaque []byte payloads: one Send is delivered
 // to the peer as exactly one Recv. The payload bytes carry protocol messages,

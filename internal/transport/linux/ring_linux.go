@@ -149,8 +149,9 @@ type ringConn struct {
 
 // var guards the interface contract at compile time.
 var (
-	_ transport.EngineConn = (*ringConn)(nil)
-	_ transport.FlowSerial = (*ringConn)(nil)
+	_ transport.EngineConn  = (*ringConn)(nil)
+	_ transport.FlowSerial  = (*ringConn)(nil)
+	_ transport.RingDrainer = (*ringConn)(nil)
 )
 
 func newRingConn(writeQ, readQ *ringQueue, comm transport.EngineConn, poll time.Duration) *ringConn {
@@ -241,6 +242,38 @@ func (c *ringConn) Recv(ctx context.Context) ([]byte, error) {
 			return nil, werr
 		}
 	}
+}
+
+// RecvQueued returns the next ring message without waiting for a new comm echo.
+// The engine writes one verdict frame per chunk to the ring (INSPECT for
+// REQUEST_START/HEADER/BODY, the terminal verdict for REQUEST_END) but signals
+// the comm socket only when it finishes draining — so a single echo may be
+// followed by several queued verdict frames. The verdict waiter drains them
+// with RecvQueued after the first echo-driven Recv. It returns errRingEmpty
+// (via the ring) when nothing is queued.
+func (c *ringConn) RecvQueued() ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, transport.ErrClosed
+	}
+	size, off, err := c.readQ.ring.peek()
+	if err != nil {
+		return nil, err
+	}
+	msg := make([]byte, size)
+	copy(msg, c.readQ.ring.buf[off:off+int(size)])
+	_ = c.readQ.ring.pop()
+	return msg, nil
+}
+
+// queued reports whether the read ring holds at least one message, without
+// consuming it. Used by the verdict waiter to know when to stop draining.
+func (c *ringConn) queued() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, _, err := c.readQ.ring.peek()
+	return err == nil
 }
 
 // recvEcho consumes exactly 4 bytes of echo from the comm socket, replaying

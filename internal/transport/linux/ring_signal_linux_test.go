@@ -181,6 +181,39 @@ func Test_RingConn_Recv_echo_buffer_replays_coalesced_bytes(t *testing.T) {
 	}
 }
 
+// Test_RingConn_RecvQueued_drains_without_echo verifies RecvQueued returns
+// queued ring messages (the INSPECT + terminal verdicts the engine writes per
+// chunk) without waiting for a new comm echo — the drain the verdict waiter
+// performs after one echo-driven Recv.
+func Test_RingConn_RecvQueued_drains_without_echo(t *testing.T) {
+	fc := &fakeComm{block: true} // no echo available: RecvQueued must not need it
+	wq := &ringQueue{ring: testRing(t, uint32(protocol.SharedMemSegmentSize), 64)}
+	rq := &ringQueue{ring: testRing(t, uint32(protocol.SharedMemSegmentSize), 64)}
+	c := newRingConn(wq, rq, fc, time.Millisecond)
+
+	// Queue three messages (e.g. INSPECT, INSPECT, terminal) on the read ring
+	// via push so the read/write positions advance correctly across messages.
+	for i := 0; i < 3; i++ {
+		msg := (&protocol.Verdict{Kind: protocol.VerdictInspect, SessionID: uint32(9)}).Encode()
+		if err := rq.ring.push([][]byte{msg}); err != nil {
+			t.Fatalf("read-ring push %d: %v", i, err)
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		msg, err := c.RecvQueued()
+		if err != nil {
+			t.Fatalf("RecvQueued %d: %v", i, err)
+		}
+		if v, err := protocol.ParseVerdict(msg); err != nil || v.Kind != protocol.VerdictInspect {
+			t.Fatalf("RecvQueued %d = %x, want an INSPECT verdict: %v", i, msg, err)
+		}
+	}
+	if _, err := c.RecvQueued(); err == nil {
+		t.Fatal("RecvQueued on an empty ring succeeded; want errRingEmpty")
+	}
+}
+
 // Test_RingConn_Recv_blocks_until_echo verifies Recv does not return a ring
 // message before the comm echo arrives.
 func Test_RingConn_Recv_blocks_until_echo(t *testing.T) {
