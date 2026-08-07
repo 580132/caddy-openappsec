@@ -1,11 +1,13 @@
-// Package mock implements a scriptable, in-process stand-in for the
-// open-appsec engine, served over the in-memory transport
-// (internal/transport/memory). It runs the server side of the registration
-// handshake (docs/attachment-protocol.md §G), parses attachment request
-// frames with internal/protocol, and answers each request with a scripted
-// verdict.
+// Package mock implements a scriptable stand-in for the open-appsec engine,
+// served over any transport.Listener. The in-memory transport
+// (internal/transport/memory) provides the in-process listener used by unit
+// tests; a socket-based listener serves cross-process end-to-end tests. The
+// engine runs the server side of the registration handshake
+// (docs/attachment-protocol.md §G), parses attachment request frames with
+// internal/protocol, and answers each request with a scripted verdict.
 //
-// Address model: the engine listens on a single in-memory address and
+// Address model: the engine listens on a single address — an in-memory
+// registry key in tests, a socket path in cross-process setups — and
 // collapses the three sockets of the real protocol onto it — §G.1
 // registration, §G.2 comm and §G.3 keep-alive all arrive at the same
 // listener. The phase-1 registration reply always names the engine's own

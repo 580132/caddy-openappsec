@@ -2,6 +2,7 @@ package mock
 
 import (
 	"encoding/hex"
+	"errors"
 	"slices"
 	"sync"
 
@@ -24,11 +25,11 @@ type Frame struct {
 	Meaning string
 }
 
-// Engine is a scriptable open-appsec engine over the in-memory transport.
-// See the package documentation for the wire behavior.
+// Engine is a scriptable open-appsec engine served over any
+// transport.Listener. See the package documentation for the wire behavior.
 type Engine struct {
 	addr string
-	l    *memory.Listener
+	l    transport.Listener
 
 	mu           sync.Mutex
 	closed       bool
@@ -49,14 +50,29 @@ type Engine struct {
 }
 
 // New starts an engine listening at addr, which is a plain registry key for
-// the in-memory transport. It fails if the address is already in use.
+// the in-memory transport. It fails if the address is already in use. It is
+// a thin compatibility wrapper over NewWithListener.
 func New(addr string) (*Engine, error) {
 	l, err := memory.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
+	return NewWithListener(l)
+}
+
+// NewWithListener starts an engine over the given listener and begins
+// accepting connections on it immediately. The engine derives its address
+// from l.Addr(), which the registration reply names as the verdict-signal
+// path. The listener may be any transport.Listener — the in-memory one for
+// in-process tests, a socket one for cross-process E2E. It fails if l is
+// nil. The engine owns the listener once started: SetEngineDown and Close
+// close it.
+func NewWithListener(l transport.Listener) (*Engine, error) {
+	if l == nil {
+		return nil, errors.New("mock: nil listener")
+	}
 	e := &Engine{
-		addr:         addr,
+		addr:         l.Addr(),
 		l:            l,
 		replyEnabled: true,
 		conns:        make(map[transport.EngineConn]struct{}),
