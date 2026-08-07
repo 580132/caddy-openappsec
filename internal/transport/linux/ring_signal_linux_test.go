@@ -90,8 +90,12 @@ func Test_RingConn_Send_signals_session_id(t *testing.T) {
 	}
 
 	// Then the ring got the payload and the comm socket got the session id
-	if n := wq.ring.readPos(); n == 0 {
-		t.Fatal("ring write queue was not written")
+	size, _, err := wq.ring.peek()
+	if err != nil {
+		t.Fatalf("ring write queue was not written: %v", err)
+	}
+	if size != uint32(len(payload)) {
+		t.Fatalf("ring message size = %d, want %d", size, len(payload))
 	}
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -168,7 +172,10 @@ func Test_RingConn_Recv_echo_buffer_replays_coalesced_bytes(t *testing.T) {
 	if _, err := c.Recv(context.Background()); err != nil {
 		t.Fatalf("first Recv: %v", err)
 	}
-	// Second Recv must replay the buffered echo[4:8], not block.
+	// Seed ring message 2 before the second Recv: each echo pairs with one
+	// ring message, so the second Recv must replay the buffered echo[4:8] and
+	// return message 2 without issuing another comm Recv.
+	seedRing(t, rq.ring, 1, 6)
 	if _, err := c.Recv(context.Background()); err != nil {
 		t.Fatalf("second Recv (buffered echo): %v", err)
 	}
