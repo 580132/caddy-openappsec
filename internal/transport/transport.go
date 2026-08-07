@@ -32,6 +32,15 @@ type RingDrainer interface {
 	RecvQueued() ([]byte, error)
 }
 
+// TransactionSignaler is implemented by EngineConns that require an explicit
+// comm-socket signal after a transaction's frames are queued, instead of one
+// signal per Send. The linux shm transport needs exactly one signal per
+// transaction (the engine drains the whole ring on one signal); per-frame
+// signals leave spurious traffic that destabilizes the connection.
+type TransactionSignaler interface {
+	Signal(ctx context.Context, sid uint32) error
+}
+
 // EngineConn is a byte-oriented, message-framed connection to the
 // open-appsec engine. It moves opaque []byte payloads: one Send is delivered
 // to the peer as exactly one Recv. The payload bytes carry protocol messages,

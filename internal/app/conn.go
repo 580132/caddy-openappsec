@@ -268,7 +268,35 @@ func (c *Conn) SendRequest(ctx context.Context, req RequestData) (uint32, error)
 			return 0, err
 		}
 	}
+	// Signal the engine once after the full transaction is queued: the engine
+	// drains the whole ring on one signal, and per-frame signals leave spurious
+	// traffic that destabilizes the connection (the reference sends each chunk
+	// then synchronously waits for its echo, so only one signal is in flight).
+	if err := c.signal(ctx, sid); err != nil {
+		c.sMu.Lock()
+		c.sessions.Reclaim(sid)
+		c.sMu.Unlock()
+		c.unlockFlow()
+		return 0, err
+	}
 	return sid, nil
+}
+
+// signal writes the one-per-transaction comm-socket doorbell on transports
+// that require it (linux shm). Transports without explicit signaling (memory,
+// socket) treat it as a no-op.
+func (c *Conn) signal(ctx context.Context, sid uint32) error {
+	c.mu.Lock()
+	conn := c.conn
+	closed := c.closed
+	c.mu.Unlock()
+	if closed {
+		return transport.ErrClosed
+	}
+	if ts, ok := conn.(transport.TransactionSignaler); ok {
+		return ts.Signal(ctx, sid)
+	}
+	return nil
 }
 
 // AwaitVerdict blocks until the engine replies with a verdict for sid. Frames

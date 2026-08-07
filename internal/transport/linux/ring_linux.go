@@ -149,9 +149,10 @@ type ringConn struct {
 
 // var guards the interface contract at compile time.
 var (
-	_ transport.EngineConn  = (*ringConn)(nil)
-	_ transport.FlowSerial  = (*ringConn)(nil)
-	_ transport.RingDrainer = (*ringConn)(nil)
+	_ transport.EngineConn          = (*ringConn)(nil)
+	_ transport.FlowSerial          = (*ringConn)(nil)
+	_ transport.RingDrainer         = (*ringConn)(nil)
+	_ transport.TransactionSignaler = (*ringConn)(nil)
 )
 
 func newRingConn(writeQ, readQ *ringQueue, comm transport.EngineConn, poll time.Duration) *ringConn {
@@ -166,14 +167,21 @@ func (c *ringConn) LockFlow() { c.flowMu.Lock() }
 // UnlockFlow releases the session lock held by LockFlow.
 func (c *ringConn) UnlockFlow() { c.flowMu.Unlock() }
 
-// Send copies payload into the write ring queue and then writes the payload's
-// 4-byte little-endian session id (offset 2, after data_type) to the comm
-// socket, signaling the engine that a new chunk for that session is ready to
-// drain (ngx_cp_io.c:72-114). It returns ErrClosed when the connection is
-// closed, ctx.Err() when ctx completes first, and errRingTooLarge (wrapped)
-// when payload exceeds the engine's max_write_size cap of 0xfffc bytes
-// (shared_ring_queue.c:33). While the ring is full it blocks, polling until
-// space appears, ctx is done, or the conn closes.
+// Send copies payload into the write ring queue. It does NOT signal the comm
+// socket: the engine processes the ring when signaled, and one signal per
+// transaction (after all frames are queued) is the reference behavior — the
+// nginx attachment sends each chunk then synchronously waits for its echo
+// (ngx_cp_io.c wait_for_service), so only one signal is ever in flight. Sending
+// one signal per frame makes the engine's handleInspection consume the first
+// signal, drain the whole ring, then treat the leftover signals as spurious
+// traffic (ring already empty), which destabilizes the connection. The caller
+// signals once after queuing the transaction with Signal.
+//
+// It returns ErrClosed when the connection is closed, ctx.Err() when ctx
+// completes first, and errRingTooLarge (wrapped) when payload exceeds the
+// engine's max_write_size cap of 0xfffc bytes (shared_ring_queue.c:33). While
+// the ring is full it blocks, polling until space appears, ctx is done, or the
+// conn closes.
 func (c *ringConn) Send(ctx context.Context, payload []byte) error {
 	if uint32(len(payload)) > uint32(protocol.MaxWriteSize) {
 		return fmt.Errorf("%w: %d bytes", errRingTooLarge, len(payload))
@@ -187,7 +195,7 @@ func (c *ringConn) Send(ctx context.Context, payload []byte) error {
 		err := c.writeQ.ring.push([][]byte{payload})
 		c.mu.Unlock()
 		if err == nil {
-			break
+			return nil
 		}
 		if err != errRingFull {
 			return err
@@ -196,11 +204,20 @@ func (c *ringConn) Send(ctx context.Context, payload []byte) error {
 			return werr
 		}
 	}
-	if len(payload) < 6 {
-		return nil // no session id (e.g. empty frame); nothing to signal
+}
+
+// Signal writes the 4-byte little-endian session id to the comm socket,
+// telling the engine a transaction for that session is queued in the ring and
+// ready to drain (ngx_cp_io.c:72-114 signal_to_service). Call once after the
+// full transaction is queued.
+func (c *ringConn) Signal(ctx context.Context, sid uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return transport.ErrClosed
 	}
 	var sig [4]byte
-	binary.LittleEndian.PutUint32(sig[:], binary.LittleEndian.Uint32(payload[2:6]))
+	binary.LittleEndian.PutUint32(sig[:], sid)
 	if err := c.comm.Send(ctx, sig[:]); err != nil {
 		return fmt.Errorf("linux: signal session: %w", err)
 	}

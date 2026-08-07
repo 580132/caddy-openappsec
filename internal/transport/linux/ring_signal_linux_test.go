@@ -73,10 +73,11 @@ func (f *fakeComm) Close() error {
 	return nil
 }
 
-// Test_RingConn_Send_signals_session_id verifies Send writes the payload's
-// 4-byte little-endian session id (offset 2, after data_type) to the comm
-// socket after pushing the payload.
-func Test_RingConn_Send_signals_session_id(t *testing.T) {
+// Test_RingConn_Send_does_not_signal verifies Send pushes the payload to the
+// ring without writing to the comm socket: signaling is a separate explicit
+// step (Signal), one per transaction, so per-frame sends do not leave spurious
+// doorbells that destabilize the engine's handleInspection loop.
+func Test_RingConn_Send_does_not_signal(t *testing.T) {
 	// Given a ringConn with a fake comm and an empty ring
 	fc := &fakeComm{}
 	wq := &ringQueue{ring: testRing(t, uint32(protocol.SharedMemSegmentSize), 64)}
@@ -89,7 +90,7 @@ func Test_RingConn_Send_signals_session_id(t *testing.T) {
 		t.Fatalf("Send: %v", err)
 	}
 
-	// Then the ring got the payload and the comm socket got the session id
+	// Then the ring got the payload but the comm socket got no signal
 	size, _, err := wq.ring.peek()
 	if err != nil {
 		t.Fatalf("ring write queue was not written: %v", err)
@@ -99,31 +100,31 @@ func Test_RingConn_Send_signals_session_id(t *testing.T) {
 	}
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if len(fc.sent) != 1 {
-		t.Fatalf("comm signals = %d, want 1", len(fc.sent))
-	}
-	got := fc.sent[0]
-	want := []byte{7, 0, 0, 0}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("signaled = %v, want %v", got, want)
+	if len(fc.sent) != 0 {
+		t.Fatalf("comm signals = %d, want 0 (Send must not signal)", len(fc.sent))
 	}
 }
 
-// Test_RingConn_Send_skips_signal_without_session_id verifies a payload too
-// short to carry a session id is pushed but not signaled.
-func Test_RingConn_Send_skips_signal_without_session_id(t *testing.T) {
+// Test_RingConn_Signal_writes_session_id verifies Signal writes exactly the
+// 4-byte little-endian session id to the comm socket — the one-per-transaction
+// doorbell the app layer sends after queuing the full request.
+func Test_RingConn_Signal_writes_session_id(t *testing.T) {
 	fc := &fakeComm{}
 	wq := &ringQueue{ring: testRing(t, uint32(protocol.SharedMemSegmentSize), 64)}
 	rq := &ringQueue{ring: testRing(t, uint32(protocol.SharedMemSegmentSize), 64)}
 	c := newRingConn(wq, rq, fc, time.Millisecond)
 
-	if err := c.Send(context.Background(), []byte{0, 1}); err != nil {
-		t.Fatalf("Send: %v", err)
+	if err := c.Signal(context.Background(), 7); err != nil {
+		t.Fatalf("Signal: %v", err)
 	}
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	if len(fc.sent) != 0 {
-		t.Fatalf("signals = %d, want 0 for short payload", len(fc.sent))
+	if len(fc.sent) != 1 {
+		t.Fatalf("comm signals = %d, want 1", len(fc.sent))
+	}
+	want := []byte{7, 0, 0, 0}
+	if !bytes.Equal(fc.sent[0], want) {
+		t.Fatalf("signaled = %v, want %v", fc.sent[0], want)
 	}
 }
 
