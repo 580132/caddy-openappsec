@@ -520,6 +520,33 @@ plain family name alone is not accepted. This module sends
 string it later uses as the shared-memory queue name (§D.1), so the two wire
 identities cannot drift.
 
+### G.2b Comm-socket signaling (per request)
+
+The comm socket is **not** a one-shot handshake channel. After the phase-2 ack
+it stays open for the attachment's lifetime (`isIpcReady` requires
+`comm_socket > 0`, `ngx_cp_initializer.c:1067-1069`) and carries a 4-byte
+doorbell in each direction per chunk:
+
+1. Attachment writes the request/response chunk to the shared-memory ring.
+2. Attachment writes the chunk's 4-byte little-endian `session_id` to the comm
+   socket (`ngx_cp_io.c:72-114` `signal_to_service`).
+3. The engine's inspection file routine fires on comm-socket data, reads the
+   signaled session id, **then** drains the ring for that session
+   (`nginx_attachment.cc:594-658` `handleInspection` → `handleRequestFromQueue`;
+   ring data for other sessions is popped and ignored).
+4. After handling, the engine writes the verdict to the ring and echoes the
+   handled `session_id` back on the comm socket (`nginx_attachment.cc:664-695`).
+5. The attachment reads the 4-byte echo, matching it against the session it is
+   waiting on (`ngx_cp_io.c:128-221` `wait_for_service`), then reads the verdict
+   from the ring.
+
+The protocol is per-session: only **one** inspection session may be in flight
+per comm socket, so the attachment serializes sessions on the socket. This
+module implements the signal in `Send` (ring push + 4-byte session-id write)
+and the echo wait in `Recv` (4-byte read before each ring pop), and serializes
+sessions per connection (`internal/app/conn.go` flow lock on the linux shm
+transport).
+
 ### G.3 Keep-alive — `nano_attachment.c:497-543`, `ngx_http_cp_attachment_module.c:349-467`
 Connect to `SHARED_KEEP_ALIVE_PATH`, then:
 ```

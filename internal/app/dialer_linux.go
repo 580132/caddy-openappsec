@@ -20,7 +20,10 @@ func newShmDialer(cfg config.EngineConfig) Dialer {
 // shmDialer dials the engine's registration signal socket, performs the
 // two-phase registration handshake (docs/attachment-protocol.md §G.1, §G.2),
 // then opens the shared-memory ring queues for request/verdict traffic (§D).
-// The keep-alive channel (§G.3) is a separate raw AF_UNIX socket.
+// The phase-2 comm socket stays open as the per-request signal/echo channel
+// (§G.2) — the engine only drains the ring after being signaled with the
+// session id on that socket. The keep-alive channel (§G.3) is a separate raw
+// AF_UNIX socket.
 type shmDialer struct {
 	cfg config.EngineConfig
 }
@@ -28,7 +31,10 @@ type shmDialer struct {
 // Dial connects to the registration signal socket, completes phase 1 of the
 // handshake to learn the verdict signal path, closes the one-shot
 // registration socket, connects to the verdict path for phase 2, then opens
-// the ring data connection.
+// the ring data connection. The phase-2 comm socket is passed into OpenRing
+// (not closed): the C reference keeps it open for the attachment's lifetime
+// (isIpcReady requires comm_socket > 0, ngx_cp_initializer.c:1067-1069) and
+// uses it to signal every new session and to receive the verdict-ready echo.
 func (d *shmDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
 	sig, err := linux.DialSignal(ctx, d.cfg.RegistrationSocket)
 	if err != nil {
@@ -47,13 +53,7 @@ func (d *shmDialer) Dial(ctx context.Context) (transport.EngineConn, error) {
 		_ = comm.Close()
 		return nil, err
 	}
-	// The C reference keeps comm_socket open for the attachment's lifetime
-	// (isIpcReady requires comm_socket > 0, ngx_cp_initializer.c:1068), but
-	// this attachment's liveness channel is the dedicated keep-alive socket
-	// (§G.3) and request/verdict data flows over the shared-memory ring, so
-	// the phase-2 socket is released once the handshake ack is in.
-	_ = comm.Close()
-	return linux.OpenRing(ctx, verdictPath, d.cfg)
+	return linux.OpenRing(ctx, verdictPath, d.cfg, comm)
 }
 
 // DialKeepAlive opens the raw keep-alive socket (§G.3) without a handshake.

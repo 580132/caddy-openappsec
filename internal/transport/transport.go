@@ -11,6 +11,18 @@ import (
 // returns ErrClosed is permanently unusable and must be re-established.
 var ErrClosed = errors.New("transport: connection closed")
 
+// FlowSerial is implemented by EngineConns that permit only one in-flight
+// inspection session at a time. The linux shm transport is one: its
+// comm-socket signaling protocol is per-session, and the agent discards ring
+// data for sessions other than the one it was signaled for
+// (nginx_attachment.cc handleRequestFromQueue), so concurrent sessions on a
+// shared conn would have their frames dropped. The app layer serializes a
+// request's send→verdict window with LockFlow/UnlockFlow.
+type FlowSerial interface {
+	LockFlow()
+	UnlockFlow()
+}
+
 // EngineConn is a byte-oriented, message-framed connection to the
 // open-appsec engine. It moves opaque []byte payloads: one Send is delivered
 // to the peer as exactly one Recv. The payload bytes carry protocol messages,

@@ -49,7 +49,13 @@ Concretely (`internal/app/dialer_linux.go`, `internal/transport/linux/`):
    that id (`initIpc(curr_instance_unique_id)`, `nginx_attachment.cc:537-538`);
    the module only opens them `O_RDWR`. Request metadata goes in the tx queue,
    verdicts come back in the rx queue.
-3. **Keep-alive** — `DialKeepAlive` uses a separate raw AF_UNIX socket
+3. **Signaling** — the phase-2 comm socket stays open as a per-request
+   doorbell (protocol doc G.2b): each ring write is followed by a 4-byte
+   session-id signal on the socket, and the engine echoes the handled session
+   id back before the verdict is read from the ring. Without this exchange the
+   agent never drains the ring and every request silently times out (fail-open,
+   no logs).
+4. **Keep-alive** — `DialKeepAlive` uses a separate raw AF_UNIX socket
    (`...-expiration-socket`, protocol doc G.3), never the ring, so foreign
    frames cannot corrupt the shared-memory queues.
 
@@ -166,6 +172,7 @@ Notes:
 | `No such file or directory` on the signal socket | Container `/dev/shm` not shared with the agent | `ipc: host` on both services; check `/dev/shm/check-point` is the same mount in both |
 | Ring files `__cp_nano_*_shared_memory_*__` never appear | Family name mismatch, or agent never registered the family | Same `family_name` as expected by the agent config; restart the agent after changing it |
 | `open write queue "...__cp_nano_rx_shared_memory_<family>__": no such file` | Module opened the bare family name; the agent names queues `<family>_<worker_id+1>` | Use the fixed image (`>= sha-6972947`) which derives the queue name from `UniqueID()`; wipe stale `/dev/shm/__cp_nano_*` first |
+| Requests very slow (~3 s each), no verdict logs | Comm socket was closed after the handshake; the agent only drains the ring when signaled on that socket, so it never processed requests and the verdict budget silently failed open | Use the fixed image (`>= cc3a5ff`) which keeps the comm socket open and signals each session; the agent then echoes and verdicts flow |
 | Requests pass through, no block pages | Fail-open default and the engine is unreachable | Confirm the agent container is running and `/dev/shm` is shared; look for the "failing open" warning in caddy logs |
 | `engine shared-memory transport is only available on linux` | Running on Windows/macOS | This stack is linux-only; use the mock engine over `transport socket` locally |
 | Registrations expire / engine forgets the attachment | Keep-alive interval at or above the engine's 300000 ms window | Lower `keep_alive_interval_ms` |

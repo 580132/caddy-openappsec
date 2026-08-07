@@ -61,6 +61,13 @@ type Conn struct {
 
 	recvMu sync.Mutex // serializes Recv so frames are not stolen mid-session
 
+	// flowMu + flowSerial implement the FlowSerial session lock: on
+	// transports that allow only one in-flight session (linux shm), every
+	// request/response inspection is serialized. flowSerial is captured at
+	// newConn from the dialed transport.
+	flowMu     sync.Mutex
+	flowSerial bool
+
 	stop     chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
@@ -69,16 +76,23 @@ type Conn struct {
 // newConn wraps a freshly-dialed conn and starts the keep-alive loop.
 func newConn(cfg config.EngineConfig, d Dialer, addr string, conn transport.EngineConn) *Conn {
 	c := &Conn{
-		cfg:      cfg,
-		dialer:   d,
-		addr:     addr,
-		conn:     conn,
-		sessions: protocol.NewSessionAllocator(),
-		stop:     make(chan struct{}),
+		cfg:        cfg,
+		dialer:     d,
+		addr:       addr,
+		conn:       conn,
+		sessions:   protocol.NewSessionAllocator(),
+		stop:       make(chan struct{}),
+		flowSerial: conn != nil && isFlowSerial(conn),
 	}
 	c.wg.Add(1)
 	go c.keepAliveLoop()
 	return c
+}
+
+// isFlowSerial reports whether the transport requires one in-flight session.
+func isFlowSerial(conn transport.EngineConn) bool {
+	_, ok := conn.(transport.FlowSerial)
+	return ok
 }
 
 // Closed reports whether the conn has been torn down by Close.
@@ -169,9 +183,12 @@ func (c *Conn) recv(ctx context.Context) ([]byte, error) {
 }
 
 // SendRequest opens an inspection session: it allocates a session id, sends
-// the REQUEST_START block, and returns the id. The caller waits on
-// AwaitVerdict and must call EndRequest to reclaim the id.
+// the REQUEST_START block, and returns the id. On a FlowSerial transport (the
+// linux shm signal/echo channel) the session lock is acquired here so only one
+// request is in flight per comm socket, and released by EndRequest. The caller
+// waits on AwaitVerdict and must call EndRequest to reclaim the id.
 func (c *Conn) SendRequest(ctx context.Context, req RequestData) (uint32, error) {
+	c.lockFlow()
 	c.sMu.Lock()
 	sid := c.sessions.Allocate()
 	c.sMu.Unlock()
@@ -182,6 +199,7 @@ func (c *Conn) SendRequest(ctx context.Context, req RequestData) (uint32, error)
 		c.sMu.Lock()
 		c.sessions.Reclaim(sid)
 		c.sMu.Unlock()
+		c.unlockFlow()
 		return 0, err
 	}
 	return sid, nil
@@ -206,18 +224,42 @@ func (c *Conn) AwaitVerdict(ctx context.Context, sid uint32) (*protocol.Verdict,
 	}
 }
 
-// EndRequest reclaims sid so the allocator can reuse it.
+// EndRequest reclaims sid so the allocator can reuse it, and releases the
+// session flow lock acquired by SendRequest or SendResponse on a FlowSerial
+// transport.
 func (c *Conn) EndRequest(sid uint32) {
 	c.sMu.Lock()
 	c.sessions.Reclaim(sid)
 	c.sMu.Unlock()
+	c.unlockFlow()
+}
+
+// lockFlow and unlockFlow hold a per-conn session lock on FlowSerial
+// transports so only one inspection session is in flight per engine
+// connection — the shm comm-socket signaling protocol is per-session and the
+// engine discards ring data for sessions other than the signaled one. Other
+// transports (memory, socket) do not implement FlowSerial and are not
+// serialized. The lock lives on the Conn (not the underlying transport conn)
+// so it survives a reconnect mid-session.
+func (c *Conn) lockFlow() {
+	if c.flowSerial {
+		c.flowMu.Lock()
+	}
+}
+
+func (c *Conn) unlockFlow() {
+	if c.flowSerial {
+		c.flowMu.Unlock()
+	}
 }
 
 // SendResponse opens a response inspection session on the same connection as
 // the request traffic: it allocates a session id, submits the RESPONSE_CODE
-// and CONTENT_LENGTH frames, and returns the id. The caller waits on
+// and CONTENT_LENGTH frames, and returns the id. Like SendRequest it acquires
+// the FlowSerial session lock; EndRequest releases it. The caller waits on
 // AwaitVerdict and must call EndRequest to reclaim the id.
 func (c *Conn) SendResponse(ctx context.Context, code int, contentLength int64) (uint32, error) {
+	c.lockFlow()
 	c.sMu.Lock()
 	sid := c.sessions.Allocate()
 	c.sMu.Unlock()
@@ -226,12 +268,14 @@ func (c *Conn) SendResponse(ctx context.Context, code int, contentLength int64) 
 		c.sMu.Lock()
 		c.sessions.Reclaim(sid)
 		c.sMu.Unlock()
+		c.unlockFlow()
 		return 0, err
 	}
 	if err := c.send(ctx, (protocol.ContentLength{SessionID: sid, Length: uint64(contentLength)}).Encode()); err != nil {
 		c.sMu.Lock()
 		c.sessions.Reclaim(sid)
 		c.sMu.Unlock()
+		c.unlockFlow()
 		return 0, err
 	}
 	return sid, nil
