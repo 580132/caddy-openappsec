@@ -63,6 +63,13 @@ func isResponseCode(b []byte) bool {
 	return len(b) >= 2 && protocol.DataType(binary.LittleEndian.Uint16(b[:2])) == protocol.DataTypeResponseCode
 }
 
+// isRequestEnd reports whether the frame is a REQUEST_END. The real engine
+// emits its terminal verdict when the attachment closes the request stage
+// (end_request), so the mock replies to REQUEST_END too.
+func isRequestEnd(b []byte) bool {
+	return len(b) >= 2 && protocol.DataType(binary.LittleEndian.Uint16(b[:2])) == protocol.DataTypeRequestEnd
+}
+
 // parseRequest dispatches a request-family frame (REQUEST_START through
 // RESPONSE_END) to the protocol parsers and returns a one-line description,
 // the session id, and whether the frame is a REQUEST_START. ok is false for

@@ -64,13 +64,15 @@ func (e *Engine) dispatch(c transport.EngineConn, b []byte, st *connState) {
 	}
 }
 
-// requestFrame records a request-family frame. REQUEST_START additionally
-// applies the flaky budget, then replies with the scripted verdict unless
-// verdict replies are disabled.
+// requestFrame records a request-family frame. REQUEST_START applies the
+// flaky budget and replies with the scripted verdict; REQUEST_END produces the
+// same verdict again (the real engine emits its terminal verdict at
+// end_request, so the attachment's final wait resolves on REQUEST_END).
 func (e *Engine) requestFrame(c transport.EngineConn, b []byte, st *connState, desc string) {
 	_, sid, isStart, _ := parseRequest(b)
+	isEnd := isRequestEnd(b)
 	e.record(b, desc, isStart)
-	if !isStart {
+	if !isStart && !isEnd {
 		return
 	}
 
@@ -79,7 +81,7 @@ func (e *Engine) requestFrame(c transport.EngineConn, b []byte, st *connState, d
 	reply := e.replyEnabled
 	e.mu.Unlock()
 
-	if flaky > 0 {
+	if flaky > 0 && isStart {
 		st.flakyN++
 		if st.flakyN >= flaky {
 			_ = c.Close()

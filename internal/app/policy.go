@@ -137,11 +137,16 @@ func (p *FailOpenPolicy) AcquireResponseVerdict(ctx context.Context, code int, c
 	return v, nil
 }
 
-// await collects the verdict for sid from the engine. It polls until the
-// verdict budget expires: a REQUEST_DELAYED_VERDICT frame holds for
-// HoldVerdictRetries x HoldVerdictPollingMs before re-polling; unrelated
-// frames are skipped at the FailOpenTimeoutMs poll interval. The fail-open
-// decision belongs to the caller.
+// await collects the final verdict for sid from the engine. The engine replies
+// per chunk: intermediate frames (INSPECT) arrive after REQUEST_START/HEADER/
+// BODY and are skipped, and the terminal verdict (ACCEPT, DROP,
+// CUSTOM_RESPONSE, or IRRELEVANT) is the one produced at REQUEST_END
+// (nginx_attachment.cc handleRequestFromQueue, waap_component_impl.cc
+// respond(EndRequestEvent)). It polls until the verdict budget expires: a
+// REQUEST_DELAYED_VERDICT frame holds for HoldVerdictRetries x
+// HoldVerdictPollingMs before re-polling; unrelated frames are skipped at the
+// FailOpenTimeoutMs poll interval. The fail-open decision belongs to the
+// caller.
 func (p *FailOpenPolicy) await(ctx context.Context, c *Conn, sid uint32) (*protocol.Verdict, error) {
 	poll := time.Duration(p.cfg.FailOpenTimeoutMs) * time.Millisecond
 	if poll <= 0 {
@@ -158,7 +163,12 @@ func (p *FailOpenPolicy) await(ctx context.Context, c *Conn, sid uint32) (*proto
 			return nil, err
 		}
 		if v, err := protocol.ParseVerdict(payload); err == nil && v.SessionID == sid {
-			return v, nil
+			// Skip intermediate INSPECT verdicts: the final decision is the
+			// terminal kind produced at REQUEST_END.
+			if v.Kind != protocol.VerdictInspect {
+				return v, nil
+			}
+			continue
 		}
 		if d, err := protocol.ParseDelayedVerdict(payload); err == nil && d.SessionID == sid {
 			time.Sleep(hold)

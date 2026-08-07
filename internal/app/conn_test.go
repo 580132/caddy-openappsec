@@ -205,3 +205,72 @@ func Test_Conn_SendRequest_AwaitVerdict_roundtrips(t *testing.T) {
 	}
 	c.EndRequest(sid)
 }
+
+// Test_Conn_SendRequest_sends_full_transaction verifies SendRequest streams the
+// complete request transaction to the engine: REQUEST_START, REQUEST_HEADER
+// bulk, REQUEST_BODY chunk, then REQUEST_END — the sequence the real engine
+// needs to produce its terminal verdict (waap end_request).
+func Test_Conn_SendRequest_sends_full_transaction(t *testing.T) {
+	// Given a fake engine that records every received frame
+	cfg := testConfig(t, "txn.sock")
+	var frames [][]byte
+	f := newFakeEngine(t, cfg)
+	defer f.close()
+
+	// When a request with headers and body is sent
+	p := NewPool(cfg, &memoryDialer{cfg: cfg})
+	c, err := p.Acquire(context.Background(), cfg.RegistrationSocket)
+	requireNoError(t, err)
+	defer func() { p.Release(cfg.RegistrationSocket) }()
+	sid, err := c.SendRequest(context.Background(), RequestData{
+		Start: protocol.RequestStart{HTTPProtocol: "HTTP/1.1", Method: "POST", Host: "example.com"},
+		Headers: []protocol.Header{
+			{Key: "Host", Value: "example.com"},
+			{Key: "Content-Type", Value: "application/x-www-form-urlencoded"},
+		},
+		Body: []byte("a=1' OR '1'='1"),
+	})
+	requireNoError(t, err)
+
+	// Then the fake engine's request handler consumed the transaction; the
+	// frames are readable back off the connection the handler pushed.
+	select {
+	case conn := <-f.connections:
+		ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+		defer cancel()
+		for i := 0; i < 4; i++ {
+			payload, err := conn.Recv(ctx)
+			requireNoError(t, err)
+			frames = append(frames, payload)
+		}
+		_ = conn.Close()
+	case <-time.After(testTimeout):
+		t.Fatal("fake engine did not complete the handshake")
+	}
+
+	// Then the transaction has the expected shape: START, HEADER, BODY, END.
+	if len(frames) != 4 {
+		t.Fatalf("transaction frames = %d, want 4 (START, HEADER, BODY, END)", len(frames))
+	}
+	if rs, err := protocol.ParseRequestStart(frames[0]); err != nil {
+		t.Fatalf("frame 0 = %x, want REQUEST_START", frames[0])
+	} else if rs.SessionID != sid {
+		t.Fatalf("frame 0 session = %d, want %d", rs.SessionID, sid)
+	}
+	if hb, err := protocol.ParseHeaderBulk(frames[1]); err != nil {
+		t.Fatalf("frame 1 = %x, want REQUEST_HEADER bulk: %v", frames[1], err)
+	} else if hb.SessionID != sid || len(hb.Headers) != 2 {
+		t.Fatalf("frame 1 headers = %d, want 2; sid %d", len(hb.Headers), hb.SessionID)
+	}
+	if bc, err := protocol.ParseBodyChunk(frames[2]); err != nil {
+		t.Fatalf("frame 2 = %x, want REQUEST_BODY chunk: %v", frames[2], err)
+	} else if bc.SessionID != sid || string(bc.Data) != "a=1' OR '1'='1" {
+		t.Fatalf("frame 2 body = %q, want the request body", bc.Data)
+	}
+	if re, err := protocol.ParseRequestEnd(frames[3]); err != nil {
+		t.Fatalf("frame 3 = %x, want REQUEST_END: %v", frames[3], err)
+	} else if re.SessionID != sid {
+		t.Fatalf("frame 3 session = %d, want %d", re.SessionID, sid)
+	}
+	c.EndRequest(sid)
+}

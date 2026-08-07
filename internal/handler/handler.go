@@ -181,7 +181,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyht
 	r.Body = newRequestBody(original)
 
 	verdict, err := h.acquirer.AcquireVerdict(r.Context(), app.RequestData{
-		Start: h.requestStart(r),
+		Start:   h.requestStart(r),
+		Headers: h.requestHeaders(r),
+		Body:    original,
 	})
 	if err != nil {
 		if h.failClosed() {
@@ -279,6 +281,24 @@ func (h *Handler) requestStart(r *http.Request) protocol.RequestStart {
 		ParsedURI:     r.URL.RequestURI(),
 		WAFTag:        "",
 	}
+}
+
+// requestHeaders returns the request headers in wire order. Host is first
+// (the nginx reference's headers list starts with it); the remaining headers
+// follow in canonical (sorted) order as Go's Header map iterates. The engine
+// inspects header keys and values for attack payloads, so the full set is
+// forwarded.
+func (h *Handler) requestHeaders(r *http.Request) []protocol.Header {
+	headers := make([]protocol.Header, 0, len(r.Header)+1)
+	if r.Host != "" {
+		headers = append(headers, protocol.Header{Key: "Host", Value: r.Host})
+	}
+	for key, values := range r.Header {
+		for _, value := range values {
+			headers = append(headers, protocol.Header{Key: key, Value: value})
+		}
+	}
+	return headers
 }
 
 // failClosed reports whether FailOpen is explicitly false.

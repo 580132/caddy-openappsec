@@ -39,13 +39,19 @@ func Test_Engine_Handshake_Then_Requests(t *testing.T) {
 	c.send(protocol.RequestStart{SessionID: sid, Method: "GET", UnparsedURI: "/"}.Encode())
 	mustEqualBytes(t, (&protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}).Encode(), c.recv(), "verdict")
 	c.send(protocol.RequestEnd{DataType: protocol.DataTypeRequestEnd, SessionID: sid}.Encode())
+
+	// Then (REQUEST_END also gets the terminal verdict, like the real engine's
+	// end_request reply)
+	mustEqualBytes(t, (&protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}).Encode(), c.recv(), "end verdict")
+
+	// When (a body chunk on the same session)
 	c.send(protocol.BodyChunk{DataType: protocol.DataTypeRequestBody, SessionID: sid, IsLastChunk: true, Data: []byte("hello")}.Encode())
 
-	// Then (no reply for non-start frames; Recv times out)
+	// Then (non-start non-end frames stay unacknowledged; Recv times out)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	if _, err := c.conn.Recv(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Recv after REQUEST_END = %v, want deadline", err)
+		t.Fatalf("Recv after body chunk = %v, want deadline (body frames are not answered)", err)
 	}
 }
 

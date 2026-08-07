@@ -547,6 +547,32 @@ and the echo wait in `Recv` (4-byte read before each ring pop), and serializes
 sessions per connection (`internal/app/conn.go` flow lock on the linux shm
 transport).
 
+### G.4 Request transaction sequence
+
+A complete inspection session streams the full request transaction, not just
+the metadata:
+
+```
+[REQUEST_START]     metadata block (protocol, method, host, addrs, ports, URIs, waf_tag)
+[REQUEST_HEADER]+   one or more header bulks (key/value pairs)
+[REQUEST_BODY]+     body chunks (is_last_chunk on the final one)
+[REQUEST_END]       data_type + session_id
+```
+
+Each frame is a separate ring message, individually signaled on the comm
+socket (§G.2b). The engine replies with an intermediate INSPECT verdict after
+REQUEST_START/HEADER/BODY, and produces the **terminal** verdict (ACCEPT,
+DROP, CUSTOM_RESPONSE, or IRRELEVANT) at REQUEST_END: `inspectEndRequest()`
+(`nginx_attachment.cc:1112-1114`) → `EndRequestEvent` → WAAP
+`waf2Transaction.end_request()` (`waap_component_impl.cc:330-350`). An
+attachment that sends REQUEST_START and never ends the transaction will never
+receive a final verdict, so attack traffic is never blocked and no detection
+log is produced. This module streams the full sequence in
+`internal/app/conn.go SendRequest` (REQUEST_START → REQUEST_HEADER bulk →
+REQUEST_BODY chunk → REQUEST_END) and the verdict waiter
+(`internal/app/policy.go await`) skips intermediate INSPECT verdicts, returning
+only the terminal one.
+
 ### G.3 Keep-alive — `nano_attachment.c:497-543`, `ngx_http_cp_attachment_module.c:349-467`
 Connect to `SHARED_KEEP_ALIVE_PATH`, then:
 ```

@@ -11,10 +11,22 @@ import (
 )
 
 // RequestData is the app-layer input for one engine inspection session. It
-// carries the metadata needed to open a REQUEST_START block; header/body
-// streaming and the HTTP handler glue belong to a later wave.
+// carries the REQUEST_START metadata plus the request headers and body, so the
+// full request transaction can be streamed to the engine: REQUEST_START,
+// REQUEST_HEADER bulk(s), REQUEST_BODY chunk(s), then REQUEST_END. The engine's
+// final verdict is produced at REQUEST_END (waap_component_impl.cc
+// respond(EndRequestEvent) → end_request()), so a transaction without it never
+// yields the attack decision.
 type RequestData struct {
-	Start protocol.RequestStart
+	Start   protocol.RequestStart
+	Headers []protocol.Header
+	Body    []byte
+}
+
+// Headers returns the request headers in wire order (Host first, matching the
+// nginx reference's header list).
+func (r RequestData) HeadersList() []protocol.Header {
+	return r.Headers
 }
 
 // backoffDelay returns the reconnect backoff for a failed attempt: it doubles
@@ -183,10 +195,13 @@ func (c *Conn) recv(ctx context.Context) ([]byte, error) {
 }
 
 // SendRequest opens an inspection session: it allocates a session id, sends
-// the REQUEST_START block, and returns the id. On a FlowSerial transport (the
-// linux shm signal/echo channel) the session lock is acquired here so only one
-// request is in flight per comm socket, and released by EndRequest. The caller
-// waits on AwaitVerdict and must call EndRequest to reclaim the id.
+// the full request transaction (REQUEST_START metadata, REQUEST_HEADER bulk,
+// REQUEST_BODY chunks, REQUEST_END), and returns the id. The engine produces
+// its final verdict at REQUEST_END, so the transaction must be complete. On a
+// FlowSerial transport (the linux shm signal/echo channel) the session lock is
+// acquired here so only one request is in flight per comm socket, and released
+// by EndRequest. The caller waits on AwaitVerdict and must call EndRequest to
+// reclaim the id.
 func (c *Conn) SendRequest(ctx context.Context, req RequestData) (uint32, error) {
 	c.lockFlow()
 	c.sMu.Lock()
@@ -195,12 +210,40 @@ func (c *Conn) SendRequest(ctx context.Context, req RequestData) (uint32, error)
 
 	start := req.Start
 	start.SessionID = sid
-	if err := c.send(ctx, start.Encode()); err != nil {
-		c.sMu.Lock()
-		c.sessions.Reclaim(sid)
-		c.sMu.Unlock()
-		c.unlockFlow()
-		return 0, err
+	frames := [][]byte{start.Encode()}
+	if len(req.Headers) > 0 {
+		// One bulk carries all headers, marked last. The reference sends
+		// HEADER_DATA_COUNT*num_headers + 4 fragments (ngx_cp_io.c:1178).
+		frames = append(frames, (protocol.HeaderBulk{
+			DataType:   protocol.DataTypeRequestHeader,
+			SessionID:  sid,
+			IsLastPart: true,
+			Headers:    req.Headers,
+		}).Encode())
+	}
+	if len(req.Body) > 0 {
+		// One chunk carries the whole buffered body, marked last
+		// (ngx_cp_io.c:1350-1387).
+		frames = append(frames, (protocol.BodyChunk{
+			DataType:    protocol.DataTypeRequestBody,
+			SessionID:   sid,
+			IsLastChunk: true,
+			Data:        req.Body,
+		}).Encode())
+	}
+	frames = append(frames, (protocol.RequestEnd{
+		DataType:  protocol.DataTypeRequestEnd,
+		SessionID: sid,
+	}).Encode())
+
+	for _, frame := range frames {
+		if err := c.send(ctx, frame); err != nil {
+			c.sMu.Lock()
+			c.sessions.Reclaim(sid)
+			c.sMu.Unlock()
+			c.unlockFlow()
+			return 0, err
+		}
 	}
 	return sid, nil
 }
