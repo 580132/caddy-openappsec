@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/yourname/caddy-openappsec/internal/protocol"
@@ -16,6 +17,9 @@ import (
 func classify(b []byte, phase int) (kind frameKind, desc string) {
 	if len(b) >= 2 && b[1] == 0 {
 		if d, _, _, ok := parseRequest(b); ok {
+			if isResponseFrame(b) {
+				return frameResponse, d
+			}
 			return frameRequest, d
 		}
 	}
@@ -34,6 +38,28 @@ func classify(b []byte, phase int) (kind frameKind, desc string) {
 		return frameKeepAlive, fmt.Sprintf("KEEP_ALIVE worker=%d family=%q", ka.WorkerID, ka.FamilyName)
 	}
 	return frameUnknown, fmt.Sprintf("UNKNOWN (%d bytes)", len(b))
+}
+
+// isResponseFrame reports whether b is a response-family frame
+// (RESPONSE_CODE, RESPONSE_HEADER, RESPONSE_BODY, RESPONSE_END, or
+// CONTENT_LENGTH). These open and feed a response inspection session.
+func isResponseFrame(b []byte) bool {
+	if len(b) < 2 {
+		return false
+	}
+	switch protocol.DataType(binary.LittleEndian.Uint16(b[:2])) {
+	case protocol.DataTypeResponseCode, protocol.DataTypeResponseHeader,
+		protocol.DataTypeResponseBody, protocol.DataTypeResponseEnd,
+		protocol.DataTypeContentLength:
+		return true
+	}
+	return false
+}
+
+// isResponseCode reports whether b is a RESPONSE_CODE frame, which opens a
+// response inspection session and triggers the scripted response verdict.
+func isResponseCode(b []byte) bool {
+	return len(b) >= 2 && protocol.DataType(binary.LittleEndian.Uint16(b[:2])) == protocol.DataTypeResponseCode
 }
 
 // parseRequest dispatches a request-family frame (REQUEST_START through

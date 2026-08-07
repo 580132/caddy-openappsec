@@ -56,6 +56,9 @@ func (e *Engine) dispatch(c transport.EngineConn, b []byte, st *connState) {
 	case frameRequest:
 		st.phase = 2
 		e.requestFrame(c, b, st, desc)
+	case frameResponse:
+		st.phase = 2
+		e.responseFrame(c, b, st, desc)
 	default:
 		e.record(b, desc, false)
 	}
@@ -89,6 +92,27 @@ func (e *Engine) requestFrame(c transport.EngineConn, b []byte, st *connState, d
 	}
 }
 
+// responseFrame records a response-family frame. RESPONSE_CODE additionally
+// tallies the response counter and replies with the scripted response verdict
+// unless verdict replies are disabled.
+func (e *Engine) responseFrame(c transport.EngineConn, b []byte, st *connState, desc string) {
+	_, sid, _, _ := parseRequest(b)
+	e.record(b, desc, false)
+	if !isResponseCode(b) {
+		return
+	}
+
+	e.mu.Lock()
+	e.responses++
+	reply := e.replyEnabled
+	e.mu.Unlock()
+
+	if reply {
+		v := e.responseVerdictFor(sid)
+		e.send(c, v.Encode())
+	}
+}
+
 // send delivers a reply, ignoring errors: a closed connection ends the
 // handler loop on the next Recv.
 func (e *Engine) send(c transport.EngineConn, b []byte) {
@@ -104,4 +128,5 @@ const (
 	frameComm
 	frameKeepAlive
 	frameRequest
+	frameResponse
 )

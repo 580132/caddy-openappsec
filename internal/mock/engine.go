@@ -40,6 +40,12 @@ type Engine struct {
 	frames       []Frame
 	requests     int
 	total        int
+
+	// responseVerdicts is the FIFO queue of scripted verdicts for response
+	// inspections; each RESPONSE_CODE pops the queue in order.
+	responseVerdicts []protocol.Verdict
+	// responses counts RESPONSE_CODE frames received (response sessions).
+	responses int
 }
 
 // New starts an engine listening at addr, which is a plain registry key for
@@ -68,6 +74,14 @@ func (e *Engine) SetNextVerdict(v protocol.Verdict) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.verdicts = append(e.verdicts, v)
+}
+
+// SetNextResponseVerdict appends a scripted response verdict to the FIFO
+// queue. Each RESPONSE_CODE frame pops the queue in order.
+func (e *Engine) SetNextResponseVerdict(v protocol.Verdict) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.responseVerdicts = append(e.responseVerdicts, v)
 }
 
 // SetResponder installs fn as the steady-state verdict function. A non-nil
@@ -141,6 +155,14 @@ func (e *Engine) Requests() int {
 	return e.requests
 }
 
+// ResponseCount returns the number of RESPONSE_CODE frames received (response
+// inspection sessions opened).
+func (e *Engine) ResponseCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.responses
+}
+
 // FrameCount returns the total number of frames received across all
 // connections, including handshake frames.
 func (e *Engine) FrameCount() int {
@@ -193,6 +215,21 @@ func (e *Engine) verdictFor(sid uint32) protocol.Verdict {
 	} else if len(e.verdicts) > 0 {
 		v = e.verdicts[0]
 		e.verdicts = e.verdicts[1:]
+	}
+	v.SessionID = sid
+	return v
+}
+
+// responseVerdictFor returns the response verdict to send for session sid: the
+// next queued response verdict, or ACCEPT. The session id is always echoed from
+// the RESPONSE_CODE frame.
+func (e *Engine) responseVerdictFor(sid uint32) protocol.Verdict {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	v := protocol.Verdict{Kind: protocol.VerdictAccept, SessionID: sid}
+	if len(e.responseVerdicts) > 0 {
+		v = e.responseVerdicts[0]
+		e.responseVerdicts = e.responseVerdicts[1:]
 	}
 	v.SessionID = sid
 	return v
