@@ -1,0 +1,32 @@
+# Local demo stack for caddy-openappsec.
+#
+# The caddy service runs Caddy v2.11.4 with the openappsec module compiled in
+# and connects to the mock engine over the TCP socket transport, which is the
+# only transport that works across containers (production would use the linux
+# "shm" transport with shared-memory paths).
+#
+# Usage:
+#   docker compose up --build
+#   curl http://localhost:8080/        # -> "hello from origin" (allow scenario)
+
+services:
+  mockengine:
+    build:
+      context: .
+      target: mockengine
+    # Fixed port inside the compose network, bound to 0.0.0.0 so the caddy
+    # container can reach it; not published to the host.
+    command: ["/mockengine", "-transport", "socket", "-addr", "0.0.0.0:9000", "-scenario", "allow"]
+    expose:
+      - "9000"
+
+  caddy:
+    build:
+      context: .
+      target: caddy
+    ports:
+      - "8080:80"
+    depends_on:
+      mockengine:
+        condition: service_started
+    restart: unless-stopped

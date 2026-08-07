@@ -1,0 +1,20 @@
+# Local demo Caddyfile for the docker-compose stack.
+# The openappsec directive is the first handler in the route, so every
+# request is inspected before the origin handler responds.
+#
+# The engine connects to the mockengine service over the TCP socket transport
+# (tcp://mockengine:9000 inside the compose network). keep_alive_interval_ms
+# is left at its default (300000 ms) — do not lower it here.
+
+:80 {
+	openappsec {
+		engine {
+			transport socket
+			registration_socket tcp://mockengine:9000
+			keep_alive_path tcp://mockengine:9000
+			family_name caddy-e2e
+		}
+	}
+
+	respond "hello from origin"
+}
