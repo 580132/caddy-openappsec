@@ -229,7 +229,40 @@ Restart the mock engine with `-scenario block`, `-scenario inject`, and so on to
 
 ## Docker
 
-The repo ships a `Dockerfile` and a `docker-compose.yml` with a `caddy` service and a `mockengine` service. Build and start both:
+Pre-built images are published to the GitHub Container Registry (GHCR) on
+every push to `main` (and every `v*` tag), and are public — no login needed:
+
+```
+docker pull ghcr.io/580132/caddy-openappsec
+docker pull ghcr.io/580132/caddy-openappsec-mockengine
+```
+
+- `ghcr.io/580132/caddy-openappsec` — Caddy v2.11.4 with the openappsec module
+  compiled in (via xcaddy). Runs the `Caddyfile` shipped in the repo, which
+  fronts the mock engine over the `socket` transport.
+- `ghcr.io/580132/caddy-openappsec-mockengine` — the scriptable mock
+  open-appsec engine. See `cmd/mockengine` for its flags
+  (`-transport socket -addr 0.0.0.0:9000 -scenario allow`).
+
+Tagging: `latest` tracks `main`; every commit also gets a `sha-<short-sha>`
+tag; release tags (`vX.Y.Z`) are published as-is.
+
+Run the demo stack from the images:
+
+```
+docker run -d --name mockengine \
+  ghcr.io/580132/caddy-openappsec-mockengine \
+  -transport socket -addr 0.0.0.0:9000 -scenario allow
+docker run -d --name caddy -p 8080:80 \
+  --link mockengine \
+  ghcr.io/580132/caddy-openappsec
+```
+
+(On a user-defined bridge network, link the mockengine service name in the
+Caddyfile instead of `--link`; the shipped `Caddyfile` uses
+`tcp://mockengine:9000`, which is what `docker compose` provides.)
+
+Alternatively, build from source:
 
 ```
 docker compose up --build
