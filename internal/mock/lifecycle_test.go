@@ -121,11 +121,11 @@ func Test_Engine_Counters_Tally(t *testing.T) {
 	// Then. Frames on one connection arrive in order, but the two
 	// connections are served concurrently, so only the multiset is stable.
 	want := map[string]int{
-		"REGISTRATION type=0 worker=1 workers=1 family=\"caddy\"":          1,
-		"COMM_DATA uid=\"caddy\" user=0 group=0 target_core=-1":            1,
-		"REQUEST_START session=3 method=\"GET\" uri=\"/a\" host=\"\"":      1,
-		"REQUEST_END session=3":                                            1,
-		"KEEP_ALIVE worker=1 family=\"caddy\"":                             1,
+		"REGISTRATION type=0 worker=1 workers=1 family=\"caddy\"":     1,
+		"COMM_DATA uid=\"caddy\" user=0 group=0 target_core=-1":       1,
+		"REQUEST_START session=3 method=\"GET\" uri=\"/a\" host=\"\"": 1,
+		"REQUEST_END session=3":                1,
+		"KEEP_ALIVE worker=1 family=\"caddy\"": 1,
 	}
 	if len(got) != 5 {
 		t.Fatalf("got %d frames %v, want 5", len(got), got)
