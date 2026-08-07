@@ -138,6 +138,61 @@ func Test_EngineConfig_Defaults_match_golden(t *testing.T) {
 	checkGolden(t, "engine_defaults.golden.json", got)
 }
 
+func Test_EngineConfig_Validate_accepts_known_transports(t *testing.T) {
+	// Given — each supported value, plus empty (platform default).
+	for _, tt := range []struct {
+		name      string
+		transport string
+	}{
+		{"empty (platform default)", ""},
+		{"memory", TransportMemory},
+		{"socket", TransportSocket},
+		{"shm", TransportSHM},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Given
+			c := EngineConfig{FamilyName: "test", Transport: tt.transport}
+			c.SetDefaults()
+
+			// When
+			err := c.Validate()
+
+			// Then
+			requireNoError(t, err)
+		})
+	}
+}
+
+func Test_EngineConfig_Validate_rejects_unknown_transport(t *testing.T) {
+	// Given
+	c := EngineConfig{FamilyName: "test", Transport: "bogus"}
+	c.SetDefaults()
+
+	// When
+	err := c.Validate()
+
+	// Then
+	requireErrorContaining(t, err, `transport "bogus" is not supported (supported: memory, socket, shm)`)
+}
+
+func Test_EngineConfig_Transport_json_roundtrip(t *testing.T) {
+	// Given — a config with an explicit transport.
+	var cfg EngineConfig
+	requireNoError(t, json.Unmarshal([]byte(`{"transport":"socket"}`), &cfg))
+
+	// When/Then — unmarshalling sets the field.
+	if cfg.Transport != TransportSocket {
+		t.Fatalf("expected transport %q, got %q", TransportSocket, cfg.Transport)
+	}
+
+	// And — marshalling an unset transport does not emit the key.
+	data, err := json.Marshal(EngineConfig{})
+	requireNoError(t, err)
+	if strings.Contains(string(data), "transport") {
+		t.Fatalf("expected transport to be omitted when unset, got: %s", data)
+	}
+}
+
 func Test_HandlerConfig_Defaults_match_golden(t *testing.T) {
 	// Given — an empty JSON document.
 	var cfg HandlerConfig
@@ -162,6 +217,7 @@ func Test_EngineConfig_Validate_rejects_invalid_configs(t *testing.T) {
 		{"empty family_name", func(c *EngineConfig) { c.FamilyName = "" }, "family_name"},
 		{"whitespace family_name", func(c *EngineConfig) { c.FamilyName = "   " }, "family_name"},
 		{"unknown attachment_type", func(c *EngineConfig) { c.AttachmentType = "apache" }, "attachment_type"},
+		{"unknown transport", func(c *EngineConfig) { c.Transport = "bogus" }, "transport"},
 		{"negative keep_alive_interval_ms", func(c *EngineConfig) { c.KeepAliveIntervalMs = -1 }, "keep_alive_interval_ms"},
 		{"zero keep_alive_interval_ms", func(c *EngineConfig) { c.KeepAliveIntervalMs = 0 }, "keep_alive_interval_ms"},
 		{"zero registration_timeout_ms", func(c *EngineConfig) { c.RegistrationTimeoutMs = 0 }, "registration_timeout_ms"},

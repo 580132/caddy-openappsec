@@ -42,6 +42,20 @@ const (
 	DefaultLogLevel              = "info"
 )
 
+// Transport values for EngineConfig.Transport. An empty Transport means the
+// platform default (linux: shm, others: unreachable stub), resolved by the
+// dialer rather than by config.
+const (
+	// TransportMemory selects in-process pipe transport, used by tests and
+	// local E2E runs.
+	TransportMemory = "memory"
+	// TransportSocket selects cross-process TCP transport, used by the mock
+	// engine CLI and local E2E runs.
+	TransportSocket = "socket"
+	// TransportSHM selects linux shared-memory transport, used in production.
+	TransportSHM = "shm"
+)
+
 // Default values for HandlerConfig.
 const (
 	// DefaultBodyBufferLimit caps the request body buffered for inspection

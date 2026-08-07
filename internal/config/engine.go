@@ -12,11 +12,22 @@ import (
 // for Caddy, so "nginx" is the only supported value for now.
 var supportedAttachmentTypes = []string{"nginx"}
 
+// supportedTransports lists the EngineConfig.Transport values the attachment
+// dialer supports. The empty value is intentionally absent: it is valid and
+// means the platform default.
+var supportedTransports = []string{TransportMemory, TransportSocket, TransportSHM}
+
 // EngineConfig configures the attachment's connection to the openappsec nano
 // engine: shared-memory socket paths, registration and keep-alive timing,
 // fail-open behavior, verdict retries, and inspection limits. Defaults mirror
 // the openappsec nginx attachment reference (docs/attachment-protocol.md §H.1).
 type EngineConfig struct {
+	// Transport selects how the attachment connects to the openappsec engine.
+	// "memory" is in-process pipes (tests/local E2E), "socket" is cross-process
+	// TCP (mock engine CLI / local E2E), and "shm" is linux shared-memory
+	// (production). Empty means the platform default (linux: shm, others:
+	// unreachable stub), resolved by the dialer.
+	Transport string `json:"transport,omitempty"`
 	// RegistrationSocket is where the engine listens for attachment
 	// registration (SHARED_REGISTRATION_SIGNAL_PATH, §G.1).
 	RegistrationSocket string `json:"registration_socket,omitempty"`
@@ -167,6 +178,12 @@ func (c *EngineConfig) Validate() error {
 		errs = append(errs, fmt.Errorf(
 			"attachment_type %q is not supported (supported: %s)",
 			c.AttachmentType, strings.Join(supportedAttachmentTypes, ", "),
+		))
+	}
+	if c.Transport != "" && !slices.Contains(supportedTransports, c.Transport) {
+		errs = append(errs, fmt.Errorf(
+			"transport %q is not supported (supported: %s)",
+			c.Transport, strings.Join(supportedTransports, ", "),
 		))
 	}
 	if c.WorkerID < 0 {
